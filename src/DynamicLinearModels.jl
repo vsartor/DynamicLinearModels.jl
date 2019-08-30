@@ -7,7 +7,7 @@ using LinearAlgebra
 
 
 """
-    dlm_dimension(F, G[, V, W])
+    dlm_dimension(F, G[, V, W, Y])
 
 Computes the dimension of a Dynamic Linear Model based on the observational
 and evolutional matrices. The error covariance matrices and observations may
@@ -16,7 +16,8 @@ be passed as well so that dimensions can be checked.
 function dlm_dimension(F::Matrix{Float64},
                        G::Matrix{Float64},
                        V::Union{Symmetric{Float64}, Nothing} = nothing,
-                       W::Union{Symmetric{Float64}, Nothing} = nothing)
+                       W::Union{Symmetric{Float64}, Nothing} = nothing,
+                       Y::Union{Matrix{Float64}, Nothing} = nothing)
 
     n = size(F, 1)
     p = size(F, 2)
@@ -40,6 +41,12 @@ function dlm_dimension(F::Matrix{Float64},
         # Only need to check one dimensions since Symmetric guarantees square
         if size(W, 1) != p
             throw(DimensionMismatch("Dimensions of W are a mismatch."))
+        end
+    end
+
+    if !isnothing(Y)
+        if size(Y, 2) != n
+            throw(DimensionMismatch("Observations have unexpected dimension."))
         end
     end
 
@@ -89,6 +96,89 @@ function simulate(F::Matrix{Float64},
     end
 
     return θ, y
+end
+
+
+"""
+    filter(Y, F, G, V, W[, m₀, C₀])
+
+Dynamic Linear Model simple filtering routine for the case where the covariance
+matrices are known and constants. If the parameters for the prior multivariate
+normal distribution is not given, smart values that have little effect on the
+result are chosen.
+"""
+function filter(Y::Matrix{Float64},
+                F::Matrix{Float64},
+                G::Matrix{Float64},
+                V::Symmetric{Float64},
+                W::Symmetric{Float64},
+                m₀::Union{Vector{Float64}, Nothing} = nothing,
+                C₀::Union{Symmetric{Float64}, Nothing} = nothing)
+    #TODO: Create new methods:
+    #        - One that uses discount factors.
+    #        - One that uses discount factors and uses stochastic variance.
+
+    n, p = dlm_dimension(F, G, V, W, Y)
+    T = size(Y, 1)
+
+    if isnothing(m₀)
+        m₀ = zeros(p)
+    end
+
+    if isnothing(C₀)
+        magic_sdev = maximum(abs.(Y[1,:] - F * m₀))
+        C₀ = Symmetric(Diagonal(repeat([magic_sdev^2], p)))
+    end
+
+    a = Array{Float64}(undef, T, p)
+    m = Array{Float64}(undef, T, p)
+    R = Array{Symmetric{Float64}}(undef, T)
+    C = Array{Symmetric{Float64}}(undef, T)
+
+    a[1,:] = G * m₀
+    R[1] = Symmetric(G * C₀ * G') + W
+    f = F * a[1,:]
+    Q = Symmetric(F * R[1] * F') + V
+    A = R[1] * F' * inv(Q)
+    m[1,:] = a[1,:] + A * (Y[1,:] - f)
+    C[1] = R[1] - Symmetric(A * Q * A')
+
+    for t = 2:T
+        a[t,:] = G * m[t-1,:]
+        R[t] = Symmetric(G * C[t-1] * G') + W
+        f = F * a[t,:]
+        Q = Symmetric(F * R[t] * F') + V
+        A = R[t] * F' * inv(Q)
+        m[t,:] = a[t,:] + A * (Y[t,:] - f)
+        C[t] = R[t] - Symmetric(A * Q * A')
+    end
+
+    return a, R, m, C
+end
+
+
+function smoother(F::Matrix{Float64},
+                  G::Matrix{Float64},
+                  a::Matrix{Float64},
+                  R::Array{Symmetric{Float64}},
+                  m::Matrix{Float64},
+                  C::Array{Symmetric{Float64}})
+    n, p = dlm_dimension(F, G)
+    T = size(R, 1)
+
+    s = Matrix{Float64}(undef, T, p)
+    S = Array{Symmetric{Float64}}(undef, T)
+
+    s[T,:] = m[T,:]
+    S[T] = C[T]
+
+    for t = T-1:-1:1
+        B = C[t] * G' * inv(R[t+1])
+        s[t,:] = m[t,:] + B * (s[t+1,:] - a[t+1,:])
+        S[t] = C[t] - Symmetric(B * (R[t+1] - S[t+1]) * B')
+    end
+
+    return s, S
 end
 
 end # module
