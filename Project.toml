@@ -3,6 +3,10 @@ uuid = "dc5eaf77-5719-4a86-9393-27bd7a74eb3e"
 authors = ["Victhor Sartório <victhor@dme.ufrj.br>"]
 version = "0.1.0"
 
+[deps]
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+
 [compat]
 julia = "1"
 
