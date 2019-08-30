@@ -17,7 +17,7 @@ function dlm_dimension(F::Matrix{Float64},
                        G::Matrix{Float64},
                        V::Union{Symmetric{Float64}, Nothing} = nothing,
                        W::Union{Symmetric{Float64}, Nothing} = nothing,
-                       Y::Union{Matrix{Float64}, Nothing} = nothing)
+                       Y::Union{Vector{Vector{Float64}}, Nothing} = nothing)
 
     n = size(F, 1)
     p = size(F, 2)
@@ -45,8 +45,10 @@ function dlm_dimension(F::Matrix{Float64},
     end
 
     if !isnothing(Y)
-        if size(Y, 2) != n
-            throw(DimensionMismatch("Observations have unexpected dimension."))
+        for t = 1:size(Y,1)
+            if size(Y[t],1) != n
+                throw(DimensionMismatch("Observations with wrong dimension."))
+            end
         end
     end
 
@@ -82,17 +84,17 @@ function simulate(F::Matrix{Float64},
 
     n, p = dlm_dimension(F, G, V, W)
 
-    θ = Array{Float64}(undef, T, p)
-    y = Array{Float64}(undef, T, n * nreps)
+    θ = Vector{Vector{Float64}}(undef, T)
+    y = Vector{Vector{Float64}}(undef, T)
 
     ω = MultivariateNormal(zeros(p), W)
     ϵ = MultivariateNormal(zeros(n), V)
 
-    θ[1,:] = G * θ₀ + rand(ω)
-    y[1,:] = F * θ[1,:] + rand(ϵ)
+    θ[1] = G * θ₀ + rand(ω)
+    y[1] = F * θ[1] + rand(ϵ)
     for t = 2:T
-        θ[t,:] = G * θ[t-1,:] + rand(ω)
-        y[t,:] = F * θ[t,:] + rand(ϵ)
+        θ[t] = G * θ[t-1] + rand(ω)
+        y[t] = F * θ[t] + rand(ϵ)
     end
 
     return θ, y
@@ -107,7 +109,7 @@ matrices are known and constants. If the parameters for the prior multivariate
 normal distribution is not given, smart values that have little effect on the
 result are chosen.
 """
-function filter(Y::Matrix{Float64},
+function filter(Y::Vector{Vector{Float64}},
                 F::Matrix{Float64},
                 G::Matrix{Float64},
                 V::Symmetric{Float64},
@@ -126,30 +128,30 @@ function filter(Y::Matrix{Float64},
     end
 
     if isnothing(C₀)
-        magic_sdev = maximum(abs.(Y[1,:] - F * m₀))
+        magic_sdev = maximum(abs.(Y[1] - F * m₀))
         C₀ = Symmetric(Diagonal(repeat([magic_sdev^2], p)))
     end
 
-    a = Array{Float64}(undef, T, p)
-    m = Array{Float64}(undef, T, p)
-    R = Array{Symmetric{Float64}}(undef, T)
-    C = Array{Symmetric{Float64}}(undef, T)
+    a = Vector{Vector{Float64}}(undef, T)
+    m = Vector{Vector{Float64}}(undef, T)
+    R = Vector{Symmetric{Float64}}(undef, T)
+    C = Vector{Symmetric{Float64}}(undef, T)
 
-    a[1,:] = G * m₀
+    a[1] = G * m₀
     R[1] = Symmetric(G * C₀ * G') + W
-    f = F * a[1,:]
+    f = F * a[1]
     Q = Symmetric(F * R[1] * F') + V
     A = R[1] * F' * inv(Q)
-    m[1,:] = a[1,:] + A * (Y[1,:] - f)
+    m[1] = a[1] + A * (Y[1] - f)
     C[1] = R[1] - Symmetric(A * Q * A')
 
     for t = 2:T
-        a[t,:] = G * m[t-1,:]
+        a[t] = G * m[t-1]
         R[t] = Symmetric(G * C[t-1] * G') + W
-        f = F * a[t,:]
+        f = F * a[t]
         Q = Symmetric(F * R[t] * F') + V
         A = R[t] * F' * inv(Q)
-        m[t,:] = a[t,:] + A * (Y[t,:] - f)
+        m[t] = a[t] + A * (Y[t] - f)
         C[t] = R[t] - Symmetric(A * Q * A')
     end
 
@@ -159,22 +161,22 @@ end
 
 function smoother(F::Matrix{Float64},
                   G::Matrix{Float64},
-                  a::Matrix{Float64},
-                  R::Array{Symmetric{Float64}},
-                  m::Matrix{Float64},
-                  C::Array{Symmetric{Float64}})
+                  a::Vector{Vector{Float64}},
+                  R::Vector{Symmetric{Float64}},
+                  m::Vector{Vector{Float64}},
+                  C::Vector{Symmetric{Float64}})
     n, p = dlm_dimension(F, G)
     T = size(R, 1)
 
-    s = Matrix{Float64}(undef, T, p)
-    S = Array{Symmetric{Float64}}(undef, T)
+    s = Vector{Vector{Float64}}(undef, T)
+    S = Vector{Symmetric{Float64}}(undef, T)
 
-    s[T,:] = m[T,:]
+    s[T] = m[T]
     S[T] = C[T]
 
     for t = T-1:-1:1
         B = C[t] * G' * inv(R[t+1])
-        s[t,:] = m[t,:] + B * (s[t+1,:] - a[t+1,:])
+        s[t] = m[t] + B * (s[t+1] - a[t+1])
         S[t] = C[t] - Symmetric(B * (R[t+1] - S[t+1]) * B')
     end
 
