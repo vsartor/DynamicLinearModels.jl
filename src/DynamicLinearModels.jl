@@ -13,11 +13,11 @@ Computes the dimension of a Dynamic Linear Model based on the observational
 and evolutional matrices. The error covariance matrices and observations may
 be passed as well so that dimensions can be checked.
 """
-function dlm_dimension(F::Matrix{Float64},
-                       G::Matrix{Float64},
-                       V::Union{Symmetric{Float64}, Nothing} = nothing,
-                       W::Union{Symmetric{Float64}, Nothing} = nothing,
-                       Y::Union{Vector{Vector{Float64}}, Nothing} = nothing)
+function dlm_dimension(F::Matrix{RT},
+                       G::Matrix{RT},
+                       V::Union{Symmetric{RT}, Nothing} = nothing,
+                       W::Union{Symmetric{RT}, Nothing} = nothing,
+                       Y::Union{Vector{Vector{RT}}, Nothing} = nothing) where {RT <: Real}
 
     n = size(F, 1)
     p = size(F, 2)
@@ -68,13 +68,14 @@ Note that the parametrizations being considered in this package is such that
 and not the notation from West and Harrison (1996) where
     y[t] = F' * y[t-1] + ϵ.
 """
-function simulate(F::Matrix{Float64},
-                  G::Matrix{Float64},
-                  V::Symmetric{Float64},
-                  W::Symmetric{Float64},
-                  θ₀::Vector{Float64},
+function simulate(F::Matrix{RT},
+                  G::Matrix{RT},
+                  V::Symmetric{RT},
+                  W::Symmetric{RT},
+                  θ₀::Vector{RT},
                   T::Integer,
-                  nreps::Integer = 1)
+                  nreps::Integer = 1) where {RT <: Real}
+
     # TODO: Allow V and W to be lists
 
     # TODO: Create a new method:
@@ -84,8 +85,8 @@ function simulate(F::Matrix{Float64},
 
     n, p = dlm_dimension(F, G, V, W)
 
-    θ = Vector{Vector{Float64}}(undef, T)
-    y = Vector{Vector{Float64}}(undef, T)
+    θ = Vector{Vector{RT}}(undef, T)
+    y = Vector{Vector{RT}}(undef, T)
 
     ω = MultivariateNormal(zeros(p), W)
     ϵ = MultivariateNormal(zeros(n), V)
@@ -104,18 +105,19 @@ end
 """
     filter(Y, F, G, V, W[, m₀, C₀])
 
-Dynamic Linear Model simple filtering routine for the case where the covariance
+Filtering routine for the simples Dynamic Linear Model case where covariance
 matrices are known and constants. If the parameters for the prior multivariate
 normal distribution is not given, smart values that have little effect on the
 result are chosen.
 """
-function filter(Y::Vector{Vector{Float64}},
-                F::Matrix{Float64},
-                G::Matrix{Float64},
-                V::Symmetric{Float64},
-                W::Symmetric{Float64},
-                m₀::Union{Vector{Float64}, Nothing} = nothing,
-                C₀::Union{Symmetric{Float64}, Nothing} = nothing)
+function filter(Y::Vector{Vector{RT}},
+                F::Matrix{RT},
+                G::Matrix{RT},
+                V::Symmetric{RT},
+                W::Symmetric{RT},
+                m₀::Union{Vector{RT}, Nothing} = nothing,
+                C₀::Union{Symmetric{RT}, Nothing} = nothing) where {RT <: Real}
+
     #TODO: Create new methods:
     #        - One that uses discount factors.
     #        - One that uses discount factors and uses stochastic variance.
@@ -132,10 +134,10 @@ function filter(Y::Vector{Vector{Float64}},
         C₀ = Symmetric(Diagonal(repeat([magic_sdev^2], p)))
     end
 
-    a = Vector{Vector{Float64}}(undef, T)
-    m = Vector{Vector{Float64}}(undef, T)
-    R = Vector{Symmetric{Float64}}(undef, T)
-    C = Vector{Symmetric{Float64}}(undef, T)
+    a = Vector{Vector{RT}}(undef, T)
+    m = Vector{Vector{RT}}(undef, T)
+    R = Vector{Symmetric{RT, Matrix{RT}}}(undef, T)
+    C = Vector{Symmetric{RT, Matrix{RT}}}(undef, T)
 
     a[1] = G * m₀
     R[1] = Symmetric(G * C₀ * G') + W
@@ -159,23 +161,29 @@ function filter(Y::Vector{Vector{Float64}},
 end
 
 
-function smoother(F::Matrix{Float64},
-                  G::Matrix{Float64},
-                  a::Vector{Vector{Float64}},
-                  R::Vector{Symmetric{Float64}},
-                  m::Vector{Vector{Float64}},
-                  C::Vector{Symmetric{Float64}})
+"""
+    smoother(F, G, a, R, m, C)
+
+Smoothing routine for the simplest Dynamic Linear Model case.
+"""
+function smoother(F::Matrix{RT},
+                  G::Matrix{RT},
+                  a::Vector{Vector{RT}},
+                  R::Vector{Symmetric{RT, Matrix{RT}}},
+                  m::Vector{Vector{RT}},
+                  C::Vector{Symmetric{RT, Matrix{RT}}}) where {RT <: Real}
+
     n, p = dlm_dimension(F, G)
     T = size(R, 1)
 
-    s = Vector{Vector{Float64}}(undef, T)
-    S = Vector{Symmetric{Float64}}(undef, T)
+    s = similar(m, T)
+    S = similar(C, T)
 
     s[T] = m[T]
     S[T] = C[T]
 
     for t = T-1:-1:1
-        B = C[t] * G' * inv(R[t+1])
+        B::Matrix{RT} = C[t] * G' * inv(R[t+1])
         s[t] = m[t] + B * (s[t+1] - a[t+1])
         S[t] = C[t] - Symmetric(B * (R[t+1] - S[t+1]) * B')
     end
