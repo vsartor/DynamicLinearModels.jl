@@ -7,17 +7,26 @@ using LinearAlgebra
 
 
 """
+    CovMat
+
+Simple alias for Symmetric Dense matrices.
+"""
+const CovMat{RT <: Real} = Symmetric{RT, Matrix{RT}}
+
+
+"""
     dlm_dimension(F, G[, V, W, Y])
 
-Computes the dimension of a Dynamic Linear Model based on the observational
-and evolutional matrices. The error covariance matrices and observations may
-be passed as well so that dimensions can be checked.
+Internal utility function that computes the dimension of a Dynamic Linear Model
+based on the observational and evolutional matrices. The error covariance
+matrices and observations may be passed as well so that dimensions can be
+checked.
 """
 function dlm_dimension(F::Matrix{RT},
                        G::Matrix{RT},
-                       V::Union{Symmetric{RT}, Nothing} = nothing,
-                       W::Union{Symmetric{RT}, Nothing} = nothing,
-                       Y::Union{Vector{Vector{RT}}, Nothing} = nothing) where {RT <: Real}
+                       V::Union{CovMat{RT}, Nothing} = nothing,
+                       W::Union{CovMat{RT}, Nothing} = nothing,
+                       Y::Union{Vector{Vector{RT}}, Nothing} = nothing) where RT <: Real
 
     n = size(F, 1)
     p = size(F, 2)
@@ -70,11 +79,11 @@ and not the notation from West and Harrison (1996) where
 """
 function simulate(F::Matrix{RT},
                   G::Matrix{RT},
-                  V::Symmetric{RT},
-                  W::Symmetric{RT},
+                  V::CovMat{RT},
+                  W::CovMat{RT},
                   θ₀::Vector{RT},
                   T::Integer,
-                  nreps::Integer = 1) where {RT <: Real}
+                  nreps::Integer = 1) where RT <: Real
 
     # TODO: Allow V and W to be lists
 
@@ -103,6 +112,31 @@ end
 
 
 """
+    dlm_set_prior(Y, F, m₀, C₀)
+
+Internal utility function for computing a smart prior that's not informative
+but at the same time doesn't lead to computational or visualization problems.
+"""
+function dlm_set_prior(Y::Vector{Vector{RT}},
+                       F::Matrix{RT},
+                       m₀::Union{Vector{RT}, Nothing},
+                       C₀::Union{CovMat{RT}, Nothing}) where RT <: Real
+
+     p = size(F, 2)
+
+     if isnothing(m₀)
+         m₀ = zeros(p)
+     end
+
+     if isnothing(C₀)
+         magic_sdev = maximum(abs.(Y[1] - F * m₀))
+         C₀ = Symmetric(Diagonal(repeat([magic_sdev^2], p)))
+     end
+
+     return m₀, C₀
+end
+
+"""
     filter(Y, F, G, V, W[, m₀, C₀])
 
 Filtering routine for the simples Dynamic Linear Model case where covariance
@@ -113,10 +147,10 @@ result are chosen.
 function filter(Y::Vector{Vector{RT}},
                 F::Matrix{RT},
                 G::Matrix{RT},
-                V::Symmetric{RT},
-                W::Symmetric{RT},
+                V::CovMat{RT},
+                W::CovMat{RT},
                 m₀::Union{Vector{RT}, Nothing} = nothing,
-                C₀::Union{Symmetric{RT}, Nothing} = nothing) where {RT <: Real}
+                C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
 
     #TODO: Create new methods:
     #        - One that uses discount factors.
@@ -125,19 +159,12 @@ function filter(Y::Vector{Vector{RT}},
     n, p = dlm_dimension(F, G, V, W, Y)
     T = size(Y, 1)
 
-    if isnothing(m₀)
-        m₀ = zeros(p)
-    end
-
-    if isnothing(C₀)
-        magic_sdev = maximum(abs.(Y[1] - F * m₀))
-        C₀ = Symmetric(Diagonal(repeat([magic_sdev^2], p)))
-    end
+    m₀, C₀ = dlm_set_prior(Y, F, m₀, C₀)
 
     a = Vector{Vector{RT}}(undef, T)
     m = Vector{Vector{RT}}(undef, T)
-    R = Vector{Symmetric{RT, Matrix{RT}}}(undef, T)
-    C = Vector{Symmetric{RT, Matrix{RT}}}(undef, T)
+    R = Vector{CovMat{RT}}(undef, T)
+    C = Vector{CovMat{RT}}(undef, T)
 
     a[1] = G * m₀
     R[1] = Symmetric(G * C₀ * G') + W
@@ -169,9 +196,9 @@ Smoothing routine for the simplest Dynamic Linear Model case.
 function smoother(F::Matrix{RT},
                   G::Matrix{RT},
                   a::Vector{Vector{RT}},
-                  R::Vector{Symmetric{RT, Matrix{RT}}},
+                  R::Vector{CovMat{RT}},
                   m::Vector{Vector{RT}},
-                  C::Vector{Symmetric{RT, Matrix{RT}}}) where {RT <: Real}
+                  C::Vector{CovMat{RT}}) where RT <: Real
 
     n, p = dlm_dimension(F, G)
     T = size(R, 1)
