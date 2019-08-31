@@ -136,6 +136,7 @@ function dlm_set_prior(Y::Vector{Vector{RT}},
      return m₀, C₀
 end
 
+
 """
     filter(Y, F, G, V, W[, m₀, C₀])
 
@@ -216,6 +217,40 @@ function smoother(F::Matrix{RT},
     end
 
     return s, S
+end
+
+
+"""
+    forecast(F, G, V, W, s, S, h)
+
+Forecast routine for the simplest Dynamic Linear Model with a horizon `h`.
+"""
+function forecast(F::Matrix{RT},
+                  G::Matrix{RT},
+                  V::CovMat{RT},
+                  W::CovMat{RT},
+                  m::Vector{Vector{RT}},
+                  C::Vector{CovMat{RT}},
+                  h::Integer) where RT <: Real
+    #TODO: Do not handle 1-step forecast, create another function for this for
+    #      efficiency
+
+    f = similar(m, h)
+    Q = similar(C, h)
+
+    a = G * m[end]
+    R = Symmetric(G * C[end] * G') + W
+    f[1] = G * a
+    Q[1] = Symmetric(F * R * F') + V
+
+    for t in 2:h
+        a = G * a
+        R = Symmetric(G * R * G') + W
+        f[t] = G * a
+        Q[t] = Symmetric(F * R * F') + V
+    end
+
+    return f, Q
 end
 
 end # module
