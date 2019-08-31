@@ -15,6 +15,22 @@ const CovMat{RT <: Real} = Symmetric{RT, Matrix{RT}}
 
 
 """
+    collect(x, index)
+
+Utility (possibly temporary) function that facilitates fetching the time_series
+for one of the DLM objects.
+"""
+function collect(x::Vector{<: Union{Vector{RT}, CovMat{RT}}},
+                 index::Integer)::Vector{RT} where RT <: Real
+    if typeof(x) == Vector{RT}
+        return [x[t][index] for t = 1:size(x,1)]
+    else
+        return [x[t][index,index] for t = 1:size(x,1)]
+    end
+end
+
+
+"""
     dlm_dimension(F, G[, V, W, Y])
 
 Internal utility function that computes the dimension of a Dynamic Linear Model
