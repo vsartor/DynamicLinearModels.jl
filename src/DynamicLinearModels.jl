@@ -1,6 +1,6 @@
 module DynamicLinearModels
 
-export dlm_dimension, simulate
+export collect, simulate, filter, smoother, forecast
 
 using Distributions
 using LinearAlgebra
@@ -20,7 +20,7 @@ const CovMat{RT <: Real} = Symmetric{RT, Matrix{RT}}
 Utility (possibly temporary) function that facilitates fetching the time_series
 for one of the DLM objects.
 """
-function collect(x::Vector{<: Union{Vector{RT}, CovMat{RT}}},
+function Base.collect(x::Vector{<: Union{Vector{RT}, CovMat{RT}}},
                  index::Integer)::Vector{RT} where RT <: Real
     if typeof(x) == Vector{RT}
         return [x[t][index] for t = 1:size(x,1)]
@@ -154,20 +154,20 @@ end
 
 
 """
-    filter(Y, F, G, V, W[, m₀, C₀])
+    kfilter(Y, F, G, V, W[, m₀, C₀])
 
 Filtering routine for the simplest Dynamic Linear Model case where covariance
 matrices are known and constants. If the parameters for the prior multivariate
 normal distribution is not given, smart values that have little effect on the
 result are chosen.
 """
-function filter(Y::Vector{Vector{RT}},
-                F::Matrix{RT},
-                G::Matrix{RT},
-                V::CovMat{RT},
-                W::CovMat{RT},
-                m₀::Union{Vector{RT}, Nothing} = nothing,
-                C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
+function kfilter(Y::Vector{Vector{RT}},
+                 F::Matrix{RT},
+                 G::Matrix{RT},
+                 V::CovMat{RT},
+                 W::CovMat{RT},
+                 m₀::Union{Vector{RT}, Nothing} = nothing,
+                 C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
 
     #TODO: Create new methods:
     #        - One that uses discount factors and uses stochastic variance.
@@ -205,20 +205,20 @@ end
 
 
 """
-    filter(Y, F, G, V, δ[, m₀, C₀])
+    kfilter(Y, F, G, V, δ[, m₀, C₀])
 
 Filtering routine for a discount factor Dynamic Linear Model where observational
 covariance is known and constants. If the parameters for the prior multivariate
 normal distribution is not given, smart values that have little effect on the
 result are chosen.
 """
-function filter(Y::Vector{Vector{RT}},
-                F::Matrix{RT},
-                G::Matrix{RT},
-                V::CovMat{RT},
-                δ::RT,
-                m₀::Union{Vector{RT}, Nothing} = nothing,
-                C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
+function kfilter(Y::Vector{Vector{RT}},
+                 F::Matrix{RT},
+                 G::Matrix{RT},
+                 V::CovMat{RT},
+                 δ::RT,
+                 m₀::Union{Vector{RT}, Nothing} = nothing,
+                 C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
 
     n, p = dlm_dimension(F, G, V=V, Y=Y)
     T = size(Y, 1)
@@ -253,16 +253,16 @@ end
 
 
 """
-    smoother(F, G, a, R, m, C)
+    ksmoother(F, G, a, R, m, C)
 
 Smoothing routine for the simplest Dynamic Linear Model case.
 """
-function smoother(F::Matrix{RT},
-                  G::Matrix{RT},
-                  a::Vector{Vector{RT}},
-                  R::Vector{CovMat{RT}},
-                  m::Vector{Vector{RT}},
-                  C::Vector{CovMat{RT}}) where RT <: Real
+function ksmoother(F::Matrix{RT},
+                   G::Matrix{RT},
+                   a::Vector{Vector{RT}},
+                   R::Vector{CovMat{RT}},
+                   m::Vector{Vector{RT}},
+                   C::Vector{CovMat{RT}}) where RT <: Real
 
     n, p = dlm_dimension(F, G)
     T = size(R, 1)
