@@ -1,6 +1,6 @@
 module DynamicLinearModels
 
-export collect, simulate, filter, smoother, forecast
+export collect, simulate, kfilter, ksmoother, forecast, estimate
 
 using Distributions
 using LinearAlgebra
@@ -253,6 +253,40 @@ end
 
 
 """
+    evolutional_covariances(Y, F, G, δ[, m₀, C₀])
+
+Compute the implied values of W when assuming a discount factor.
+"""
+function evolutional_covariances(Y::Vector{Vector{RT}},
+                                 F::Matrix{RT},
+                                 G::Matrix{RT},
+                                 V::CovMat{RT},
+                                 δ::RT,
+                                 m₀::Union{Vector{RT}, Nothing} = nothing,
+                                 C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
+
+    T = size(Y, 1)
+
+    W = Vector{CovMat{RT}}(undef, T)
+
+    m, C = dlm_set_prior(Y, F, m₀, C₀)
+
+    for t = 1:T
+        a = G * m
+        R = Symmetric(G * C * G') / δ
+        f = F * a
+        Q = Symmetric(F * R * F') + V
+        A = R * F' * inv(Q)
+        m = a + A * (Y[t] - f)
+        C = R - Symmetric(A * Q * A')
+        W[t] = Symmetric(G * C * G') * ((1. - δ) / δ)
+    end
+
+    return W
+end
+
+
+"""
     ksmoother(F, G, a, R, m, C)
 
 Smoothing routine for the simplest Dynamic Linear Model case.
@@ -330,6 +364,58 @@ function forecast(F::Matrix{RT},
     W = C[end] / δ
 
     return forecast(F, G, V, W, m, C, h)
+end
+
+
+"""
+    mle(Y, F, G, δ[, m₀, C₀, maxit, ϵ])
+
+Obtains maximum a posteriori estimates for states and observational variance
+for a discount factor Dynamic Linear Model.
+"""
+function estimate(Y::Vector{Vector{RT}},
+                  F::Matrix{RT},
+                  G::Matrix{RT},
+                  δ::RT,
+                  m₀::Union{Vector{RT}, Nothing} = nothing,
+                  C₀::Union{CovMat{RT}, Nothing} = nothing;
+                  maxit::Integer = 50,
+                  ϵ::RT = 1e-8) where RT <: Real
+
+    n, p = dlm_dimension(F, G, Y=Y)
+    T = size(Y, 1)
+
+    # Initialize values
+    ϕ = ones(1)
+    θ = [Vector{RT}(undef, p) for t = 1:T]
+
+    converged = false
+
+    # Coordinate descent algorithm: Iterate on conditional maximums
+    for it = 1:maxit
+        prev_θ = copy(θ)
+
+        # Conditional maximum for the states is the mean from the normal
+        # distributions resulting from Kalman smoothing
+        a, R, m, C = kfilter(Y, F, G, Symmetric(diagm(ϕ)), δ, m₀, C₀)
+        θ, _ = ksmoother(F, G, a, R, m, C)
+
+        # Conditional maximum for variance comes from the Gamma distribution
+        # which is InverseGamma(T - 1, sum((y - θ)^2)) for which the mode is given
+        # by sum((y - F θ)^2) / T.
+        ϕ = zero(ϕ)
+        for t = 1:T
+            ϕ += (Y[t] - F * θ[t]) .^ 2 / T
+        end
+
+        # Check for early convergence condition
+        if sum([sum((θ[t] - prev_θ[t]) .^ 2) for t = 1:T]) < p * T * ϵ^2
+            converged = true
+            break
+        end
+    end
+
+    return θ, Symmetric(diagm(ϕ)), converged
 end
 
 end # module
