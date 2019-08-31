@@ -318,7 +318,7 @@ end
 
 
 """
-    forecast(F, G, V, W, s, S, h)
+    forecast(F, G, V, W, μ, Σ, h)
 
 Forecast routine for the simplest Dynamic Linear Model with a horizon `h`.
 """
@@ -326,19 +326,15 @@ function forecast(F::Matrix{RT},
                   G::Matrix{RT},
                   V::CovMat{RT},
                   W::CovMat{RT},
-                  m::Vector{Vector{RT}},
-                  C::Vector{CovMat{RT}},
+                  μ::Vector{RT},
+                  Σ::CovMat{RT},
                   h::Integer) where RT <: Real
 
-    f = similar(m, h)
-    Q = similar(C, h)
+    f = Vector{Vector{RT}}(undef, h)
+    Q = Vector{CovMat{RT}}(undef, h)
 
-    a = G * m[end]
-    R = Symmetric(G * C[end] * G') + W
-    f[1] = G * a
-    Q[1] = Symmetric(F * R * F') + V
-
-    for t in 2:h
+    a, R = μ, Σ
+    for t in 1:h
         a = G * a
         R = Symmetric(G * R * G') + W
         f[t] = G * a
@@ -350,7 +346,7 @@ end
 
 
 """
-    forecast(F, G, V, δ, s, S, h)
+    forecast(F, G, V, δ, μ, Σ, h)
 
 Forecast routine for a discount factor Dynamic Linear Model with a horizon `h`.
 """
@@ -358,12 +354,11 @@ function forecast(F::Matrix{RT},
                   G::Matrix{RT},
                   V::CovMat{RT},
                   δ::RT,
-                  m::Vector{Vector{RT}},
-                  C::Vector{CovMat{RT}},
+                  μ::Vector{RT},
+                  Σ::CovMat{RT},
                   h::Integer) where RT <: Real
-    W = C[end] / δ
 
-    return forecast(F, G, V, W, m, C, h)
+    return forecast(F, G, V, Σ / δ, μ, Σ, h)
 end
 
 
