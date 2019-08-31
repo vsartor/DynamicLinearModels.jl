@@ -1,5 +1,5 @@
 # DynamicLinearModels
 
-Julia package for working with [Dynamic Linear Models](https://archive.org/details/WestM.HarrisonJ.BayesianForecastingAndDynamicModels/page/n13).
+Julia package for modeling univariate or multivariate time-series through [Dynamic Linear Models](https://archive.org/details/WestM.HarrisonJ.BayesianForecastingAndDynamicModels/page/n13), distributed under the MIT License (see LICENSE file).
 
-Very early stages of development.
+Currently supports most basic operations one would want to perform, including a novel procedure for obtaining Maximum a Posteriori pontual estimates.
