@@ -7,16 +7,35 @@ using LinearAlgebra
 using RecipesBase
 
 
+"""
+    CovMat
+
+Simple alias for Symmetric Dense matrices.
+"""
+const CovMat{RT <: Real} = Symmetric{RT, Matrix{RT}}
+
+
+"""
+    DLMPlot
+
+Indicator type for Plots.jl recipe.
+"""
 struct DLMPlot end
 
+
+"""
+    plot(::DLMPlot, Y, f, Q[, fh, Qh, factor = 1.64, index = 1])
+
+Recipe for easily plotting the results obtained by the package routines.
+"""
 @recipe function plot(::DLMPlot,
                       Y::Vector{Vector{RT}},
                       f::Vector{Vector{RT}},
                       Q::Vector{CovMat{RT}},
                       fh::Union{Vector{Vector{RT}}, Nothing} = nothing,
                       Qh::Union{Vector{CovMat{RT}}, Nothing} = nothing;
-                      factor::Real = 1.64,
-                      index::Integer = 1) where RT <: Real
+                      factor = 1.64,
+                      index = 1) where RT <: Real
     T = size(Y, 1)
 
     if isnothing(fh) != isnothing(Qh)
@@ -67,14 +86,6 @@ struct DLMPlot end
     label := lb
     (x, y)
 end
-
-
-"""
-    CovMat
-
-Simple alias for Symmetric Dense matrices.
-"""
-const CovMat{RT <: Real} = Symmetric{RT, Matrix{RT}}
 
 
 """
