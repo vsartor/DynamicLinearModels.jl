@@ -4,6 +4,69 @@ export collect, simulate, kfilter, ksmoother, forecast, estimate
 
 using Distributions
 using LinearAlgebra
+using RecipesBase
+
+
+struct DLMPlot end
+
+@recipe function plot(::DLMPlot,
+                      Y::Vector{Vector{RT}},
+                      f::Vector{Vector{RT}},
+                      Q::Vector{CovMat{RT}},
+                      fh::Union{Vector{Vector{RT}}, Nothing} = nothing,
+                      Qh::Union{Vector{CovMat{RT}}, Nothing} = nothing;
+                      factor::Real = 1.64,
+                      index::Integer = 1) where RT <: Real
+    T = size(Y, 1)
+
+    if isnothing(fh) != isnothing(Qh)
+        throw(ArgumentError("Missingness of fh and Qh must match."))
+    end
+
+    x::Vector{UnitRange{Int}} = []
+    y::Vector{Vector{RT}} = []
+    st = Matrix{Symbol}(undef, 1, 0)
+    lt = Matrix{Symbol}(undef, 1, 0)
+    co = Matrix{Symbol}(undef, 1, 0)
+    lb = Matrix{String}(undef, 1, 0)
+
+    yhat = [f[t][index] for t = 1:T]
+
+    push!(x, 1:T, 1:T, 1:T, 1:T)
+    push!(y,
+          [Y[t][index] for t = 1:T],
+          yhat,
+          [yhat[t] + factor * sqrt(Q[t][index,index]) for t = 1:T],
+          [yhat[t] - factor * sqrt(Q[t][index,index]) for t = 1:T])
+    st = hcat(st, :scatter, :line, :line, :line)
+    lt = hcat(lt, :auto, :solid, :dot, :dot)
+    co = hcat(co, :grey, :orange, :orange, :orange)
+    lb = hcat(lb, "Observations", "Fit", "", "")
+
+    if !isnothing(fh)
+        h = size(fh, 1)
+
+        yfor = [fh[t][index] for t = 1:h]
+        fend = f[end][index]
+        Qend = Q[end][index]
+
+        push!(x, T:T+h, T:T+h, T:T+h)
+        push!(y,
+              vcat(fend, yfor),
+              vcat(fend, yfor) + factor * sqrt.(vcat(Qend, [Qh[t][index,index] for t=1:h])),
+              vcat(fend, yfor) - factor * sqrt.(vcat(Qend, [Qh[t][index,index] for t=1:h])))
+        st = hcat(st, :line, :line, :line)
+        lt = hcat(lt, :solid, :dot, :dot)
+        co = hcat(co, :skyblue, :skyblue, :skyblue)
+        lb = hcat(lb, "Forecast", "", "")
+    end
+
+    seriestype := st
+    linestyle := lt
+    color := co
+    label := lb
+    (x, y)
+end
 
 
 """
@@ -100,13 +163,6 @@ function simulate(F::Matrix{RT},
                   θ₀::Vector{RT},
                   T::Integer,
                   nreps::Integer = 1) where RT <: Real
-
-    # TODO: Allow V and W to be lists
-
-    # TODO: Create a new method:
-    #         Allow for a discount factor to be passed (it is computed online
-    #         with an ongoing filtering routine, starting with a smart prior on
-    #         θ₀).
 
     n, p = dlm_dimension(F, G, V=V, W=W)
 
@@ -314,6 +370,30 @@ function ksmoother(F::Matrix{RT},
     end
 
     return s, S
+end
+
+
+"""
+    fit(F, V, m, C)
+
+Computes the fitted values for the data.
+"""
+function fit(F::Matrix{RT},
+             V::CovMat{RT},
+             m::Vector{Vector{RT}},
+             C::Vector{CovMat{RT}}) where RT <: Real
+
+    T = size(m, 1)
+
+    f = Vector{Vector{RT}}(undef, T)
+    Q = Vector{CovMat{RT}}(undef, T)
+
+    for t = 1:T
+        f[t] = F * m[t]
+        Q[t] = Symmetric(F * C[t] * F') + V
+    end
+
+    return f, Q
 end
 
 
