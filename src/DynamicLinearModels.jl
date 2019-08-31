@@ -374,14 +374,14 @@ end
 
 
 """
-    fit(F, V, m, C)
+    fitted(F, V, m, C)
 
 Computes the fitted values for the data.
 """
-function fit(F::Matrix{RT},
-             V::CovMat{RT},
-             m::Vector{Vector{RT}},
-             C::Vector{CovMat{RT}}) where RT <: Real
+function fitted(F::Matrix{RT},
+                V::CovMat{RT},
+                m::Vector{Vector{RT}},
+                C::Vector{CovMat{RT}}) where RT <: Real
 
     T = size(m, 1)
 
