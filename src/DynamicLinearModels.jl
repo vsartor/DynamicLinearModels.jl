@@ -379,7 +379,7 @@ end
 
 
 """
-    evolutional_covariances(Y, F, G, δ[, m₀, C₀])
+    evolutional_covariances(Y, F, G, V, δ[, m₀, C₀])
 
 Compute the implied values of the evolutional covariances W[1], ..., W[T] when
 considering a discount factor approach.
