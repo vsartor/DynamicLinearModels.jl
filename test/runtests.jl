@@ -1,5 +1,6 @@
 using DynamicLinearModels
 using LinearAlgebra
+using RecipesBase
 using Test
 
 @testset "DynamicLinearModels" begin
@@ -123,6 +124,39 @@ end
 
     @test f[2] ≈ [4 + 2/3]
     @test Q[2] ≈ hcat(14 + 1/3)
+end
+
+
+@testset "Plot Recipe" begin
+    F = reshape([1., 0.], 1, 2)
+    G = [1. 1.; 0. 1.]
+    V = Symmetric(reshape([12.], 1, 1))
+    W = Symmetric([1. 0.; 0. 0.2])
+    θ₀ = zeros(2)
+    T = 36
+    θ, y = simulate(F, G, V, W, θ₀, T)
+    a, R, m, C = kfilter(y, F, G, V, W)
+    s, S = ksmoother(G, a, R, m, C)
+    f, Q = fitted(F, V, s, S)
+    fh, Qh = forecast(F, G, V, W, m[end], C[end], 10)
+
+    # When applying the recipe, this function is required to check validity
+    # of the recipe keys. To avoid importing Plots, extend it to always return
+    # true.
+    function RecipesBase.is_key_supported(x)
+        return true
+    end
+
+    apply_recipe = RecipesBase.apply_recipe
+
+    @test size(apply_recipe(Dict{Symbol,Any}(), DLMPlot(), y, f, Q
+                           )[1].plotattributes[:color]) == (1,4)
+    @test size(apply_recipe(Dict{Symbol,Any}(), DLMPlot(), y, f, Q, fh, Qh
+                           )[1].plotattributes[:color]) == (1,7)
+
+    @test_throws ArgumentError apply_recipe(Dict{Symbol,Any}(), DLMPlot(), y, f, Q, nothing, Qh)
+    @test_throws ArgumentError apply_recipe(Dict{Symbol,Any}(), DLMPlot(), y, f, Q, fh, nothing)
+
 end
 
 end
