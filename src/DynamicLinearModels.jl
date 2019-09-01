@@ -346,16 +346,15 @@ end
 
 
 """
-    ksmoother(F, G, a, R, m, C)
+    ksmoother(G, a, R, m, C)
 
-Filtering routine for a Dynamic Linear Model (`F`, `G`), where `a` and `R` are
+Filtering routine for a Dynamic Linear Model ( ⋅ , `G`), where `a` and `R` are
 the filtered one-step ahead prior means and covariances, and `m` and `C` are
 the filtered online means and covariances.
 
 Returns the posterior means and covariances `s` and `S`.
 """
-function ksmoother(F::Matrix{RT},
-                   G::Matrix{RT},
+function ksmoother(G::Matrix{RT},
                    a::Vector{Vector{RT}},
                    R::Vector{CovMat{RT}},
                    m::Vector{Vector{RT}},
@@ -540,7 +539,7 @@ function estimate(Y::Vector{Vector{RT}},
         # Conditional maximum for the states is the mean from the normal
         # distributions resulting from Kalman smoothing
         a, R, m, C = kfilter(Y, F, G, Symmetric(diagm(ϕ)), δ, m₀, C₀)
-        θ, _ = ksmoother(F, G, a, R, m, C)
+        θ, _ = ksmoother(G, a, R, m, C)
 
         # Conditional maximum for variance comes from the Gamma distribution
         # which is InverseGamma(T - 1, sum((y - θ)^2)) for which the mode is
