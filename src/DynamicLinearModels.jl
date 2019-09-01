@@ -467,7 +467,7 @@ function forecast(F::Matrix{RT},
     for t in 1:h
         a = G * a
         R = Symmetric(G * R * G') + W
-        f[t] = G * a
+        f[t] = F * a
         Q[t] = Symmetric(F * R * F') + V
     end
 
