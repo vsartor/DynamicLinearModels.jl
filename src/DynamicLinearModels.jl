@@ -3,6 +3,7 @@ module DynamicLinearModels
 export DLMPlot
 export extract
 export simulate
+export compute_prior
 export check_dimensions
 export kfilter
 export ksmoother
