@@ -348,7 +348,7 @@ end
 """
     ksmoother(G, a, R, m, C)
 
-Filtering routine for a Dynamic Linear Model ( ⋅ , `G`), where `a` and `R` are
+Filtering routine for a Dynamic Linear Model ( ⋅, `G`), where `a` and `R` are
 the filtered one-step ahead prior means and covariances, and `m` and `C` are
 the filtered online means and covariances.
 
@@ -360,7 +360,6 @@ function ksmoother(G::Matrix{RT},
                    m::Vector{Vector{RT}},
                    C::Vector{CovMat{RT}}) where RT <: Real
 
-    n, p = check_dimensions(F, G)
     T = size(R, 1)
 
     s = similar(m, T)
