@@ -475,7 +475,7 @@ function estimate(Y::Vector{Vector{RT}},
     ϕ = ones(1)
     θ = [Vector{RT}(undef, p) for t = 1:T]
 
-    converged = false
+    it_count = zero(maxit)
 
     # Coordinate descent algorithm: Iterate on conditional maximums
     for it = 1:maxit
@@ -487,21 +487,21 @@ function estimate(Y::Vector{Vector{RT}},
         θ, _ = ksmoother(F, G, a, R, m, C)
 
         # Conditional maximum for variance comes from the Gamma distribution
-        # which is InverseGamma(T - 1, sum((y - θ)^2)) for which the mode is given
-        # by sum((y - F θ)^2) / T.
+        # which is InverseGamma(T - 1, sum((y - θ)^2)) for which the mode is
+        # given by the sum((y - F θ)^2) / T.
         ϕ = zero(ϕ)
         for t = 1:T
             ϕ += (Y[t] - F * θ[t]) .^ 2 / T
         end
 
         # Check for early convergence condition
+        it_count = it
         if sum([sum((θ[t] - prev_θ[t]) .^ 2) for t = 1:T]) < p * T * ϵ^2
-            converged = true
             break
         end
     end
 
-    return θ, Symmetric(diagm(ϕ)), converged
+    return θ, Symmetric(diagm(ϕ)), it_count
 end
 
 end # module

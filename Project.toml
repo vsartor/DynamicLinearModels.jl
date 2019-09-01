@@ -1,7 +1,7 @@
 name = "DynamicLinearModels"
 uuid = "dc5eaf77-5719-4a86-9393-27bd7a74eb3e"
 authors = ["Victhor Sartório <victhor@dme.ufrj.br>"]
-version = "0.1.0"
+version = "0.2.0-dev"
 
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
