@@ -41,6 +41,13 @@ using Test
 
     @test_throws DimensionMismatch check_dimensions(F, G, V=V, W=W)
 
+    # Cover exception for when G is not square
+    F = reshape([1., 0.], 1, 2)
+    G = [1. 1. 1.; 0. 1. 0.]
+    V = Symmetric(reshape([1.], 1, 1))
+    W = Symmetric([1. 0.; 0. 0.2])
+    @test_throws DimensionMismatch check_dimensions(F, G, V=V, W=W)
+
     G = [1. 1.; 0. 1.]
     y = reshape([1., 1., 1., 1.], 1, 4)
 
