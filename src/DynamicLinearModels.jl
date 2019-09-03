@@ -202,10 +202,10 @@ function simulate(F::Matrix{RT},
     ϵ = MultivariateNormal(zeros(n), V)
 
     θ[1] = G * θ₀ + rand(ω)
-    y[1] = F * θ[1] + rand(ϵ)
+    y[1] = repeat(F * θ[1], nreps) + reshape(rand(ϵ, nreps), nreps * n)
     for t = 2:T
         θ[t] = G * θ[t-1] + rand(ω)
-        y[t] = F * θ[t] + rand(ϵ)
+        y[t] = repeat(F * θ[t], nreps) + reshape(rand(ϵ, nreps), nreps * n)
     end
 
     return θ, y
