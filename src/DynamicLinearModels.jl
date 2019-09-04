@@ -80,7 +80,7 @@ credibility of 90%. Index indicates which observational index is to be plotted.
     if !isnothing(fh)
         h = size(fh, 1)
         fend = f[end][index]
-        Qend = Q[end][index]
+        Qend = Q[end][index,index]
         yfor = extract(fh, index)
         Qfor = extract(Qh, index)
 
