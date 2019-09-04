@@ -147,14 +147,14 @@ function check_dimensions(F::Matrix{RT},
     end
 
     if !isnothing(V)
-        # Only need to check one dimensions since Symmetric guarantees square
+        # Only need to check one dimension since Symmetric guarantees square
         if size(V, 1) != n
             throw(DimensionMismatch("Dimensions of V are a mismatch."))
         end
     end
 
     if !isnothing(W)
-        # Only need to check one dimensions since Symmetric guarantees square
+        # Only need to check one dimension since Symmetric guarantees square
         if size(W, 1) != p
             throw(DimensionMismatch("Dimensions of W are a mismatch."))
         end
@@ -176,9 +176,9 @@ end
     simulate(F, G, V, W, θ₀, T[, nreps])
 
 Simulates a time-series Dynamic Linear Model specified by the quadruple
-(`F`, `G`, `V`, `W`) with a starting state of θ₁ <- Nₚ(G θ₀, W), with `T`
+(`F`, `G`, `V`, `W`) with a starting state of `θ₁ <- Nₚ(G θ₀, W)`, with `T`
 observations. A parameter `nreps` may be passed indicating the number of
-replicates to be generated.
+replicates to be generated. Returns the generated `θ` and `y`.
 
 Note that the parametrizations being considered in this package is such that
     `y[t] = F * y[t-1] + ϵ`
@@ -382,7 +382,7 @@ end
     evolutional_covariances(Y, F, G, V, δ[, m₀, C₀])
 
 Compute the implied values of the evolutional covariances W[1], ..., W[T] when
-considering a discount factor approach.
+considering a discount factor approach, and returns them.
 """
 function evolutional_covariances(Y::Vector{Vector{RT}},
                                  F::Matrix{RT},
