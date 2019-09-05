@@ -50,8 +50,10 @@ credibility of 90%. Index indicates which observational index is to be plotted.
                       fh::Union{Vector{Vector{RT}}, Nothing} = nothing,
                       Qh::Union{Vector{CovMat{RT}}, Nothing} = nothing;
                       factor = 1.64,
-                      index = 1) where RT <: Real
+                      index = 1,
+                      nreps = 1) where RT <: Real
 
+    n = size(f[1], 1)
     T = size(Y, 1)
 
     if isnothing(fh) != isnothing(Qh)
@@ -65,17 +67,28 @@ credibility of 90%. Index indicates which observational index is to be plotted.
     co = Matrix{Symbol}(undef, 1, 0)
     lb = Matrix{String}(undef, 1, 0)
 
+    for i = 1:nreps
+        local_index = n * (i-1) + index
+        push!(x, 1:T)
+        push!(y, extract(Y, local_index))
+        st = hcat(st, :scatter)
+        lt = hcat(lt, :auto)
+        co = hcat(co, :grey)
+        lb = hcat(lb, i == 1 ? "Observations" : "")
+    end
+
     yhat = extract(f, index)
     Qhat = extract(Q, index)
 
-    push!(x, 1:T, 1:T, 1:T, 1:T)
+    push!(x, 1:T, 1:T, 1:T)
     push!(y,
-          extract(Y, index), yhat,
-          yhat + factor * sqrt.(Qhat), yhat - factor * sqrt.(Qhat))
-    st = hcat(st, :scatter, :line, :line, :line)
-    lt = hcat(lt, :auto, :solid, :dot, :dot)
-    co = hcat(co, :grey, :orange, :orange, :orange)
-    lb = hcat(lb, "Observations", "Fit", "", "")
+          yhat,
+          yhat + factor * sqrt.(Qhat),
+          yhat - factor * sqrt.(Qhat))
+    st = hcat(st, :line, :line, :line)
+    lt = hcat(lt, :solid, :dot, :dot)
+    co = hcat(co, :orange, :orange, :orange)
+    lb = hcat(lb, "Fitted", "", "")
 
     if !isnothing(fh)
         h = size(fh, 1)
@@ -133,7 +146,8 @@ function check_dimensions(F::Matrix{RT},
                           G::Matrix{RT};
                           V::Union{CovMat{RT}, Nothing} = nothing,
                           W::Union{CovMat{RT}, Nothing} = nothing,
-                          Y::Union{Vector{Vector{RT}}, Nothing} = nothing) where RT <: Real
+                          Y::Union{Vector{Vector{RT}}, Nothing} = nothing,
+                          nreps::Integer = 1) where RT <: Real
 
     n = size(F, 1)
     p = size(F, 2)
@@ -161,9 +175,9 @@ function check_dimensions(F::Matrix{RT},
     end
 
     if !isnothing(Y)
-        for t = 1:size(Y,1)
-            if size(Y[t],1) != n
-                throw(DimensionMismatch("Observations with wrong dimension."))
+        for t = 1:size(Y, 1)
+            if size(Y[t], 1) != n * nreps
+                throw(DimensionMismatch("Dimension of Y incompatible with F."))
             end
         end
     end
@@ -295,8 +309,8 @@ end
     kfilter(Y, F, G, V, δ[, m₀, C₀])
 
 Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
-the observational covariance matrix `V` is known and constants and evolutional
-covariance matrices W[1], ..., W[T] are indirectly modelled through a discount
+the observational covariance matrix `V` is known and constant and evolutional
+covariance matrices `W[1], ..., W[T]` are indirectly modelled through a discount
 factor `δ`. See West & Harrison (1996) for further information of the discount
 factor apporach. `Y` is a vector of observations, containing all observations
 Y[1], ..., Y[T].  Prior parameters `m₀` and `C₀` may be omitted, in which case
@@ -322,6 +336,70 @@ function kfilter(Y::Vector{Vector{RT}},
     m = Vector{Vector{RT}}(undef, T)
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
+
+    a[1] = G * m₀
+    R[1] = Symmetric(G * C₀ * G') / δ
+    f = F * a[1]
+    Q = Symmetric(F * R[1] * F') + V
+    A = R[1] * F' * inv(Q)
+    m[1] = a[1] + A * (Y[1] - f)
+    C[1] = R[1] - Symmetric(A * Q * A')
+
+    for t = 2:T
+        a[t] = G * m[t-1]
+        R[t] = Symmetric(G * C[t-1] * G') / δ
+        f = F * a[t]
+        Q = Symmetric(F * R[t] * F') + V
+        A = R[t] * F' * inv(Q)
+        m[t] = a[t] + A * (Y[t] - f)
+        C[t] = R[t] - Symmetric(A * Q * A')
+    end
+
+    return a, R, m, C
+end
+
+
+"""
+    kfilter(Y, F, G, V, η, δ[, m₀, C₀])
+
+Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
+the observational covariance matrix `V` is known and constants and evolutional
+covariance matrices `W[1], ..., W[T]` are indirectly modelled through a discount
+factor `δ` and observations have replications. `Y` is a vector of observations,
+where at each time point there are `nreps` replicates, each with a weight
+`η[i]`.  Prior parameters `m₀` and `C₀` may be omitted, in which case
+`compute_prior` kicks in to assign a prior.
+
+Returns one-step ahead prior means and covariances `a` and `R`, and online
+means and covariances `m` and `C`.
+"""
+function kfilter(Y::Vector{Vector{RT}},
+                 F::Matrix{RT},
+                 G::Matrix{RT},
+                 V::CovMat{RT},
+                 η::Vector{RT},
+                 δ::RT,
+                 m₀::Union{Vector{RT}, Nothing} = nothing,
+                 C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
+
+    nreps = size(η, 1)
+    n, p = check_dimensions(F, G, V=V, Y=Y, nreps=nreps)
+    T = size(Y, 1)
+
+    η /= sum(η)
+
+    F = repeat(F, nreps)
+    V = Symmetric(kron(diagm(1 ./ η), V))
+
+    m₀, C₀ = compute_prior(Y, F, m₀, C₀)
+
+    a = Vector{Vector{RT}}(undef, T)
+    m = Vector{Vector{RT}}(undef, T)
+    R = Vector{CovMat{RT}}(undef, T)
+    C = Vector{CovMat{RT}}(undef, T)
+
+    #TODO: Allow `exclude` parameter, defaulting to true, indicating if
+    # observations with too low a weight should be excluded from estimation.
 
     a[1] = G * m₀
     R[1] = Symmetric(G * C₀ * G') / δ
@@ -410,6 +488,28 @@ function evolutional_covariances(Y::Vector{Vector{RT}},
     end
 
     return W
+end
+
+
+"""
+    evolutional_covariances(Y, F, G, V, η, δ[, m₀, C₀])
+
+Compute the implied values of the evolutional covariances W[1], ..., W[T] when
+considering a discount factor approach, and weighted replicates.
+"""
+function evolutional_covariances(Y::Vector{Vector{RT}},
+                                 F::Matrix{RT},
+                                 G::Matrix{RT},
+                                 V::CovMat{RT},
+                                 η::Vector{RT},
+                                 δ::RT,
+                                 m₀::Union{Vector{RT}, Nothing} = nothing,
+                                 C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
+
+    nreps = size(η, 1)
+    F = repeat(F, nreps)
+    V = Symmetric(kron(diagm(1 ./ η), V))
+    return evolutional_covariances(Y, F, G, V, δ, m₀, C₀)
 end
 
 
@@ -506,7 +606,8 @@ covariance matrix for a Dynamic Linear Model (`F`, `G`), considering a discount
 factor `δ` for the evolutional covariance matrices. Prior parameters `m₀` and
 `C₀` may be omitted, in which case `compute_prior` kicks in to assign a prior.
 Parameters `maxit` and `ϵ` control the maximum number of iterations and the
-numerical precision for early convergence for the Coordinate Descent algorithm.
+numerical precision for early convergence for the Coordinate Descent algorithm,
+respectively.
 
 Returns point estimates for the states `θ` and point estimate for the
 covariance matrix `V`. Also returns the number of iterations until convergence.
@@ -546,6 +647,80 @@ function estimate(Y::Vector{Vector{RT}},
         ϕ = zero(ϕ)
         for t = 1:T
             ϕ += (Y[t] - F * θ[t]) .^ 2 / T
+        end
+
+        # Check for early convergence condition
+        it_count = it
+        if sum([sum((θ[t] - prev_θ[t]) .^ 2) for t = 1:T]) < p * T * ϵ^2
+            break
+        end
+    end
+
+    return θ, Symmetric(diagm(ϕ)), it_count < maxit ? it_count : -1
+end
+
+
+"""
+    estimate(Y, F, G, η, δ[, m₀, C₀; maxit, ϵ])
+
+Obtains maximum a posteriori estimates for the states and observational
+covariance matrix for a Dynamic Linear Model (`F`, `G`), considering a discount
+factor `δ` for the evolutional covariance matrices, and weighted replicates.
+Prior parameters `m₀` and `C₀` may be omitted, in which case `compute_prior`
+kicks in to assign a prior. Parameters `maxit` and `ϵ` control the maximum
+number of iterations and the numerical precision for early convergence for the
+Coordinate Descent algorithm, respectively.
+
+Returns point estimates for the states `θ` and point estimate for the
+covariance matrix `V`. Also returns the number of iterations until convergence.
+If negative, it means the algorithm stopped from reaching the maximum number
+of iterations.
+"""
+function estimate(Y::Vector{Vector{RT}},
+                  F::Matrix{RT},
+                  G::Matrix{RT},
+                  η::Vector{RT},
+                  δ::RT,
+                  m₀::Union{Vector{RT}, Nothing} = nothing,
+                  C₀::Union{CovMat{RT}, Nothing} = nothing;
+                  maxit::Integer = 50,
+                  ϵ::RT = 1e-8) where RT <: Real
+
+    nreps = size(η, 1)
+    n, p = check_dimensions(F, G, Y=Y, nreps=nreps)
+    T = size(Y, 1)
+    FF = repeat(F, nreps)
+    η /= sum(η)
+
+    index_map = [(n * (l - 1) + 1):(n * (l - 1) + n) for l = 1:nreps]
+
+    #TODO: Allow `exclude` parameter, defaulting to true, indicating if
+    # observations with too low a weight should be excluded from estimation.
+
+    # Initialize values
+    ϕ = ones(1)
+    θ = [Vector{RT}(undef, p) for t = 1:T]
+
+    it_count = zero(maxit)
+
+    # Coordinate descent algorithm: Iterate on conditional maximums
+    for it = 1:maxit
+        prev_θ = copy(θ)
+
+        # Conditional maximum for the states is the mean from the normal
+        # distributions resulting from Kalman smoothing
+        V = Symmetric(kron(diagm(1 ./ η), diagm(ϕ)))
+        a, R, m, C = kfilter(Y, FF, G, V, δ, m₀, C₀)
+        θ, _ = ksmoother(G, a, R, m, C)
+
+        # Conditional maximum for variance comes from the Gamma distribution
+        # which is InverseGamma(T - 1, sum((y - θ)^2)) for which the mode is
+        # given by the sum((y - F θ)^2) / T.
+        ϕ = zero(ϕ)
+        for t = 1:T
+            for i = 1:nreps
+                ϕ += η[i] * (Y[t][index_map[i]] - F * θ[t]) .^ 2 / T
+            end
         end
 
         # Check for early convergence condition
