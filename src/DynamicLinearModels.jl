@@ -246,10 +246,60 @@ function compute_prior(Y::Vector{Vector{RT}},
 
      if isnothing(C₀)
          magic_sdev = maximum(abs.(Y[1] - F * m₀))
-         C₀ = Symmetric(Diagonal(repeat([magic_sdev^2], p)))
+         C₀ = Symmetric(diagm(repeat([magic_sdev^2], p)))
      end
 
      return m₀, C₀
+end
+
+
+"""
+    kfilter_core(y, F, G, V, W, a, R)
+
+    Internal function which actually performs the computation step.
+"""
+@inline function kfilter_core(y::Vector{RT},
+                              F::Matrix{RT},
+                              G::Matrix{RT},
+                              V::CovMat{RT},
+                              W::CovMat{RT},
+                              m::Vector{RT},
+                              C::CovMat{RT}) where RT <: Real
+
+    a = G * m
+    R = Symmetric(G * C * G') + W
+    f = F * a
+    Q = Symmetric(F * R * F') + V
+    A = R * F' * inv(Q)
+    m = a + A * (y - f)
+    C = R - Symmetric(A * Q * A')
+
+    return a, R, m, C
+end
+
+
+"""
+    kfilter_core(y, F, G, V, W, a, R)
+
+    Internal function which actually performs the computation step.
+"""
+@inline function kfilter_core(y::Vector{RT},
+                              F::Matrix{RT},
+                              G::Matrix{RT},
+                              V::CovMat{RT},
+                              δ::RT,
+                              m::Vector{RT},
+                              C::CovMat{RT}) where RT <: Real
+
+    a = G * m
+    R = Symmetric(G * C * G') / δ
+    f = F * a
+    Q = Symmetric(F * R * F') + V
+    A = R * F' * inv(Q)
+    m = a + A * (y - f)
+    C = R - Symmetric(A * Q * A')
+
+    return a, R, m, C
 end
 
 
@@ -283,22 +333,9 @@ function kfilter(Y::Vector{Vector{RT}},
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
 
-    a[1] = G * m₀
-    R[1] = Symmetric(G * C₀ * G') + W
-    f = F * a[1]
-    Q = Symmetric(F * R[1] * F') + V
-    A = R[1] * F' * inv(Q)
-    m[1] = a[1] + A * (Y[1] - f)
-    C[1] = R[1] - Symmetric(A * Q * A')
-
+    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V, W, m₀, C₀)
     for t = 2:T
-        a[t] = G * m[t-1]
-        R[t] = Symmetric(G * C[t-1] * G') + W
-        f = F * a[t]
-        Q = Symmetric(F * R[t] * F') + V
-        A = R[t] * F' * inv(Q)
-        m[t] = a[t] + A * (Y[t] - f)
-        C[t] = R[t] - Symmetric(A * Q * A')
+        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V, W, m[t-1], C[t-1])
     end
 
     return a, R, m, C
@@ -337,22 +374,9 @@ function kfilter(Y::Vector{Vector{RT}},
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
 
-    a[1] = G * m₀
-    R[1] = Symmetric(G * C₀ * G') / δ
-    f = F * a[1]
-    Q = Symmetric(F * R[1] * F') + V
-    A = R[1] * F' * inv(Q)
-    m[1] = a[1] + A * (Y[1] - f)
-    C[1] = R[1] - Symmetric(A * Q * A')
-
+    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V, δ, m₀, C₀)
     for t = 2:T
-        a[t] = G * m[t-1]
-        R[t] = Symmetric(G * C[t-1] * G') / δ
-        f = F * a[t]
-        Q = Symmetric(F * R[t] * F') + V
-        A = R[t] * F' * inv(Q)
-        m[t] = a[t] + A * (Y[t] - f)
-        C[t] = R[t] - Symmetric(A * Q * A')
+        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V, δ, m[t-1], C[t-1])
     end
 
     return a, R, m, C
@@ -382,6 +406,9 @@ function kfilter(Y::Vector{Vector{RT}},
                  m₀::Union{Vector{RT}, Nothing} = nothing,
                  C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
 
+     #TODO: Allow `exclude` parameter, defaulting to true, indicating if
+     # observations with too low a weight should be excluded from estimation.
+
     nreps = size(η, 1)
     n, p = check_dimensions(F, G, V=V, Y=Y, nreps=nreps)
     T = size(Y, 1)
@@ -398,25 +425,9 @@ function kfilter(Y::Vector{Vector{RT}},
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
 
-    #TODO: Allow `exclude` parameter, defaulting to true, indicating if
-    # observations with too low a weight should be excluded from estimation.
-
-    a[1] = G * m₀
-    R[1] = Symmetric(G * C₀ * G') / δ
-    f = F * a[1]
-    Q = Symmetric(F * R[1] * F') + V
-    A = R[1] * F' * inv(Q)
-    m[1] = a[1] + A * (Y[1] - f)
-    C[1] = R[1] - Symmetric(A * Q * A')
-
+    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V, δ, m₀, C₀)
     for t = 2:T
-        a[t] = G * m[t-1]
-        R[t] = Symmetric(G * C[t-1] * G') / δ
-        f = F * a[t]
-        Q = Symmetric(F * R[t] * F') + V
-        A = R[t] * F' * inv(Q)
-        m[t] = a[t] + A * (Y[t] - f)
-        C[t] = R[t] - Symmetric(A * Q * A')
+        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V, δ, m[t-1], C[t-1])
     end
 
     return a, R, m, C
@@ -471,19 +482,12 @@ function evolutional_covariances(Y::Vector{Vector{RT}},
                                  C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
 
     T = size(Y, 1)
+    m, C = compute_prior(Y, F, m₀, C₀)
 
     W = Vector{CovMat{RT}}(undef, T)
 
-    m, C = compute_prior(Y, F, m₀, C₀)
-
     for t = 1:T
-        a = G * m
-        R = Symmetric(G * C * G') / δ
-        f = F * a
-        Q = Symmetric(F * R * F') + V
-        A = R * F' * inv(Q)
-        m = a + A * (Y[t] - f)
-        C = R - Symmetric(A * Q * A')
+        _, _, m, C = kfilter_core(Y[t], F, G, V, δ, m, C)
         W[t] = Symmetric(G * C * G') * ((1. - δ) / δ)
     end
 
@@ -686,6 +690,9 @@ function estimate(Y::Vector{Vector{RT}},
                   maxit::Integer = 50,
                   ϵ::RT = 1e-8) where RT <: Real
 
+    #TODO: Allow `exclude` parameter, defaulting to true, indicating if
+    # observations with too low a weight should be excluded from estimation.
+
     nreps = size(η, 1)
     n, p = check_dimensions(F, G, Y=Y, nreps=nreps)
     T = size(Y, 1)
@@ -693,9 +700,6 @@ function estimate(Y::Vector{Vector{RT}},
     η /= sum(η)
 
     index_map = [(n * (l - 1) + 1):(n * (l - 1) + n) for l = 1:nreps]
-
-    #TODO: Allow `exclude` parameter, defaulting to true, indicating if
-    # observations with too low a weight should be excluded from estimation.
 
     # Initialize values
     ϕ = ones(1)
