@@ -494,6 +494,7 @@ function kfilter(Y::Vector{Vector{RT}},
     n, p = check_dimensions(F, G, V=V, Y=Y, nreps=nreps)
     T = size(Y, 1)
 
+    η = copy(η)
     η /= sum(η)
 
     F = repeat(F, nreps)
@@ -547,6 +548,7 @@ function kfilter(Y::Vector{Vector{RT}},
     n, p = check_dimensions(F, G, V=V, Y=Y, nreps=nreps)
     T = size(Y, 1)
 
+    η = copy(η)
     for t = 1:T
         η[t,:] /= sum(η[t,:])
     end
@@ -868,6 +870,8 @@ function estimate(Y::Vector{Vector{RT}},
     n, p = check_dimensions(F, G, Y=Y, nreps=nreps)
     T = size(Y, 1)
     FF = repeat(F, nreps)
+
+    η = copy(η)
     η /= sum(η)
 
     index_map = [(n * (l - 1) + 1):(n * (l - 1) + n) for l = 1:nreps]
@@ -942,7 +946,11 @@ function estimate(Y::Vector{Vector{RT}},
     n, p = check_dimensions(F, G, Y=Y, nreps=nreps)
     T = size(Y, 1)
     FF = repeat(F, nreps)
-    η /= sum(η)
+
+    η = copy(η)
+    for t = 1:T
+        η[t,:] /= sum(η[t,:])
+    end
 
     index_map = [(n * (l - 1) + 1):(n * (l - 1) + n) for l = 1:nreps]
 
