@@ -126,7 +126,7 @@ If `x` is a `Vector{Vector{RT}}` it returns `[x[t][index] for t = 1:T]`;
 If `x` is a `Vector{CovMat{RT}}` it returns `[x[t][index,index] for t = 1:T]`.
 """
 function extract(x::Vector{<: Union{Vector{RT}, CovMat{RT}}},
-                 index::Integer)::Vector{RT} where RT <: Real
+                 index::Union{<: Integer, BitVector}) where RT <: Real
 
     if typeof(x) == Vector{Vector{RT}}
         return [x[t][index] for t = 1:size(x,1)]
@@ -254,9 +254,28 @@ end
 
 
 """
+    exclude_low_weights(Y, η, ϵ)
+
+Internal function which returns a version of the original `Y` and `η` variables,
+containing only the observations with weights above `ϵ`.
+"""
+@inline function exclude_low_weights(Y::Vector{Vector{RT}},
+                                     η::Vector{RT},
+                                     ϵ::RT) where RT <: Real
+
+    good_mask = η .> ϵ
+    if all(good_mask)
+        return Y, η
+    end
+
+    return extract(Y, good_mask), η[good_mask]
+end
+
+
+"""
     kfilter_core(y, F, G, V, W, a, R)
 
-    Internal function which actually performs the computation step.
+Internal function which actually performs the computation step.
 """
 @inline function kfilter_core(y::Vector{RT},
                               F::Matrix{RT},
@@ -281,7 +300,7 @@ end
 """
     kfilter_core(y, F, G, V, W, a, R)
 
-    Internal function which actually performs the computation step.
+Internal function which actually performs the computation step.
 """
 @inline function kfilter_core(y::Vector{RT},
                               F::Matrix{RT},
@@ -404,10 +423,12 @@ function kfilter(Y::Vector{Vector{RT}},
                  η::Vector{RT},
                  δ::RT,
                  m₀::Union{Vector{RT}, Nothing} = nothing,
-                 C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
+                 C₀::Union{CovMat{RT}, Nothing} = nothing;
+                 exclude_under::Union{RT, Nothing} = nothing) where RT <: Real
 
-     #TODO: Allow `exclude` parameter, defaulting to true, indicating if
-     # observations with too low a weight should be excluded from estimation.
+    if !isnothing(exclude_under)
+        Y, η = exclude_low_weights(Y, η, exclude_under)
+    end
 
     nreps = size(η, 1)
     n, p = check_dimensions(F, G, V=V, Y=Y, nreps=nreps)
@@ -688,10 +709,12 @@ function estimate(Y::Vector{Vector{RT}},
                   m₀::Union{Vector{RT}, Nothing} = nothing,
                   C₀::Union{CovMat{RT}, Nothing} = nothing;
                   maxit::Integer = 50,
-                  ϵ::RT = 1e-8) where RT <: Real
+                  ϵ::RT = 1e-8,
+                  exclude_under::Union{RT, Nothing} = nothing) where RT <: Real
 
-    #TODO: Allow `exclude` parameter, defaulting to true, indicating if
-    # observations with too low a weight should be excluded from estimation.
+    if !isnothing(exclude_under)
+        Y, η = exclude_low_weights(Y, η, exclude_under)
+    end
 
     nreps = size(η, 1)
     n, p = check_dimensions(F, G, Y=Y, nreps=nreps)
