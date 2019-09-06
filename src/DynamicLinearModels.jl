@@ -443,7 +443,7 @@ function kfilter(Y::Vector{Vector{RT}},
                  m₀::Union{Vector{RT}, Nothing} = nothing,
                  C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
 
-    n, p = check_dimensions(F, G, V=V, Y=Y)
+    n, p = check_dimensions(F, G, Y=Y)
     T = size(Y, 1)
 
     m₀, C₀ = compute_prior(Y, F, m₀, C₀)
@@ -543,7 +543,7 @@ function kfilter(Y::Vector{Vector{RT}},
         Y, η = exclude_low_weights(Y, η, exclude_under)
     end
 
-    nreps = size(η, 1)
+    nreps = size(η, 2)
     n, p = check_dimensions(F, G, V=V, Y=Y, nreps=nreps)
     T = size(Y, 1)
 
@@ -608,7 +608,7 @@ end
     evolutional_covariances(Y, F, G, V, δ[, m₀, C₀])
 
 Compute the implied values of the evolutional covariances W[1], ..., W[T] when
-considering a discount factor approach, and returns them.
+considering a discount factor approach.
 """
 function evolutional_covariances(Y::Vector{Vector{RT}},
                                  F::Matrix{RT},
@@ -651,6 +651,38 @@ function evolutional_covariances(Y::Vector{Vector{RT}},
     F = repeat(F, nreps)
     V = Symmetric(kron(diagm(1 ./ η), V))
     return evolutional_covariances(Y, F, G, V, δ, m₀, C₀)
+end
+
+
+"""
+    evolutional_covariances(Y, F, G, V, δ[, m₀, C₀])
+
+Compute the implied values of the evolutional covariances W[1], ..., W[T] when
+considering a discount factor approach, and dynamically weighted replicates.
+"""
+function evolutional_covariances(Y::Vector{Vector{RT}},
+                                 F::Matrix{RT},
+                                 G::Matrix{RT},
+                                 V::CovMat{RT},
+                                 η::Matrix{RT},
+                                 δ::RT,
+                                 m₀::Union{Vector{RT}, Nothing} = nothing,
+                                 C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
+
+    nreps = size(η, 2)
+    T = size(Y, 1)
+    F = repeat(F, nreps)
+    m, C = compute_prior(Y, F, m₀, C₀)
+
+    W = Vector{CovMat{RT}}(undef, T)
+
+    for t = 1:T
+        VV = Symmetric(kron(diagm(1 ./ η[t,:]), V))
+        _, _, m, C = kfilter_core(Y[t], F, G, VV, δ, m, C)
+        W[t] = Symmetric(G * C * G') * ((1. - δ) / δ)
+    end
+
+    return W
 end
 
 
@@ -906,7 +938,7 @@ function estimate(Y::Vector{Vector{RT}},
         Y, η = exclude_low_weights(Y, η, exclude_under)
     end
 
-    nreps = size(η, 1)
+    nreps = size(η, 2)
     n, p = check_dimensions(F, G, Y=Y, nreps=nreps)
     T = size(Y, 1)
     FF = repeat(F, nreps)
