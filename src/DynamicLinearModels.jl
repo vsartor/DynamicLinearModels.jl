@@ -273,6 +273,25 @@ end
 
 
 """
+    exclude_low_weights(Y, η, ϵ)
+
+Internal function which returns a version of the original `Y` and `η` variables,
+containing only the observations with weights above `ϵ`.
+"""
+@inline function exclude_low_weights(Y::Vector{Vector{RT}},
+                                     η::Matrix{RT},
+                                     ϵ::RT) where RT <: Real
+
+    good_mask = η .> ϵ
+    if all(good_mask)
+        return Y, η
+    end
+
+    return extract(Y, good_mask), η[:,good_mask]
+end
+
+
+"""
     kfilter_core(y, F, G, V, W, a, R)
 
 Internal function which actually performs the computation step.
@@ -403,6 +422,47 @@ end
 
 
 """
+    kfilter(Y, F, G, V, δ[, m₀, C₀])
+
+Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
+the observational covariance matrices `V[1], …, V[T]` are known and evolutional
+covariance matrices `W[1], ..., W[T]` are indirectly modelled through a discount
+factor `δ`. See West & Harrison (1996) for further information of the discount
+factor apporach. `Y` is a vector of observations, containing all observations
+Y[1], ..., Y[T].  Prior parameters `m₀` and `C₀` may be omitted, in which case
+`compute_prior` kicks in to assign a prior.
+
+Returns one-step ahead prior means and covariances `a` and `R`, and online
+means and covariances `m` and `C`.
+"""
+function kfilter(Y::Vector{Vector{RT}},
+                 F::Matrix{RT},
+                 G::Matrix{RT},
+                 V::Vector{CovMat{RT}},
+                 δ::RT,
+                 m₀::Union{Vector{RT}, Nothing} = nothing,
+                 C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
+
+    n, p = check_dimensions(F, G, V=V, Y=Y)
+    T = size(Y, 1)
+
+    m₀, C₀ = compute_prior(Y, F, m₀, C₀)
+
+    a = Vector{Vector{RT}}(undef, T)
+    m = Vector{Vector{RT}}(undef, T)
+    R = Vector{CovMat{RT}}(undef, T)
+    C = Vector{CovMat{RT}}(undef, T)
+
+    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V[1], δ, m₀, C₀)
+    for t = 2:T
+        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V[t], δ, m[t-1], C[t-1])
+    end
+
+    return a, R, m, C
+end
+
+
+"""
     kfilter(Y, F, G, V, η, δ[, m₀, C₀])
 
 Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
@@ -449,6 +509,62 @@ function kfilter(Y::Vector{Vector{RT}},
     a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V, δ, m₀, C₀)
     for t = 2:T
         a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V, δ, m[t-1], C[t-1])
+    end
+
+    return a, R, m, C
+end
+
+
+"""
+    kfilter(Y, F, G, V, η, δ[, m₀, C₀])
+
+Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
+the observational covariance matrix `V` is known and constants and evolutional
+covariance matrices `W[1], ..., W[T]` are indirectly modelled through a discount
+factor `δ` and observations have replications. `Y` is a vector of observations,
+where at each time point there are `nreps` replicates, each with dynamic weights
+`η[t,i]`.  Prior parameters `m₀` and `C₀` may be omitted, in which case
+`compute_prior` kicks in to assign a prior.
+
+Returns one-step ahead prior means and covariances `a` and `R`, and online
+means and covariances `m` and `C`.
+"""
+function kfilter(Y::Vector{Vector{RT}},
+                 F::Matrix{RT},
+                 G::Matrix{RT},
+                 V::CovMat{RT},
+                 η::Matrix{RT},
+                 δ::RT,
+                 m₀::Union{Vector{RT}, Nothing} = nothing,
+                 C₀::Union{CovMat{RT}, Nothing} = nothing;
+                 exclude_under::Union{RT, Nothing} = nothing) where RT <: Real
+
+    if !isnothing(exclude_under)
+        Y, η = exclude_low_weights(Y, η, exclude_under)
+    end
+
+    nreps = size(η, 1)
+    n, p = check_dimensions(F, G, V=V, Y=Y, nreps=nreps)
+    T = size(Y, 1)
+
+    for t = 1:T
+        η[t,:] /= sum(η[t,:])
+    end
+
+    F = repeat(F, nreps)
+
+    m₀, C₀ = compute_prior(Y, F, m₀, C₀)
+
+    a = Vector{Vector{RT}}(undef, T)
+    m = Vector{Vector{RT}}(undef, T)
+    R = Vector{CovMat{RT}}(undef, T)
+    C = Vector{CovMat{RT}}(undef, T)
+
+    VV = Symmetric(kron(diagm(1 ./ η[1,:]), V))
+    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, VV, δ, m₀, C₀)
+    for t = 2:T
+        VV = Symmetric(kron(diagm(1 ./ η[t,:]), V))
+        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, VV, δ, m[t-1], C[t-1])
     end
 
     return a, R, m, C
@@ -737,6 +853,80 @@ function estimate(Y::Vector{Vector{RT}},
         # Conditional maximum for the states is the mean from the normal
         # distributions resulting from Kalman smoothing
         V = Symmetric(kron(diagm(1 ./ η), diagm(ϕ)))
+        a, R, m, C = kfilter(Y, FF, G, V, δ, m₀, C₀)
+        θ, _ = ksmoother(G, a, R, m, C)
+
+        # Conditional maximum for variance comes from the Gamma distribution
+        ϕ = zero(ϕ)
+        for t = 1:T
+            for i = 1:nreps
+                ϕ += η[i] * (Y[t][index_map[i]] - F * θ[t]) .^ 2 / T
+            end
+        end
+
+        # Check for early convergence condition
+        it_count = it
+        if sum([sum((θ[t] - prev_θ[t]) .^ 2) for t = 1:T]) < p * T * ϵ^2
+            break
+        end
+    end
+
+    return θ, Symmetric(diagm(ϕ)), it_count < maxit ? it_count : -1
+end
+
+
+"""
+    estimate(Y, F, G, η, δ[, m₀, C₀; maxit, ϵ])
+
+Obtains maximum a posteriori estimates for the states and observational
+covariance matrix for a Dynamic Linear Model (`F`, `G`), considering a discount
+factor `δ` for the evolutional covariance matrices, and dynamically weighted
+replicates. Prior parameters `m₀` and `C₀` may be omitted, in which case
+`compute_prior` kicks in to assign a prior. Parameters `maxit` and `ϵ` control
+the maximum number of iterations and the numerical precision for early
+convergence for the Coordinate Descent algorithm, respectively.
+
+Returns point estimates for the states `θ` and point estimate for the
+covariance matrix `V`. Also returns the number of iterations until convergence.
+If negative, it means the algorithm stopped from reaching the maximum number
+of iterations.
+"""
+function estimate(Y::Vector{Vector{RT}},
+                  F::Matrix{RT},
+                  G::Matrix{RT},
+                  η::Matrix{RT},
+                  δ::RT,
+                  m₀::Union{Vector{RT}, Nothing} = nothing,
+                  C₀::Union{CovMat{RT}, Nothing} = nothing;
+                  maxit::Integer = 50,
+                  ϵ::RT = 1e-8,
+                  exclude_under::Union{RT, Nothing} = nothing) where RT <: Real
+
+    if !isnothing(exclude_under)
+        Y, η = exclude_low_weights(Y, η, exclude_under)
+    end
+
+    nreps = size(η, 1)
+    n, p = check_dimensions(F, G, Y=Y, nreps=nreps)
+    T = size(Y, 1)
+    FF = repeat(F, nreps)
+    η /= sum(η)
+
+    index_map = [(n * (l - 1) + 1):(n * (l - 1) + n) for l = 1:nreps]
+
+    # Initialize values
+    ϕ = ones(1)
+    θ = [Vector{RT}(undef, p) for t = 1:T]
+
+    it_count = zero(maxit)
+
+    # Coordinate descent algorithm: Iterate on conditional maximums
+    for it = 1:maxit
+        prev_θ = copy(θ)
+
+        # Conditional maximum for the states is the mean from the normal
+        # distributions resulting from Kalman smoothing
+        V = [Symmetric(kron(diagm(1 ./ η[t,:]), diagm(ϕ))) for t = 1:T]
         a, R, m, C = kfilter(Y, FF, G, V, δ, m₀, C₀)
         θ, _ = ksmoother(G, a, R, m, C)
 
