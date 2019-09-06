@@ -273,25 +273,6 @@ end
 
 
 """
-    exclude_low_weights(Y, η, ϵ)
-
-Internal function which returns a version of the original `Y` and `η` variables,
-containing only the observations with weights above `ϵ`.
-"""
-@inline function exclude_low_weights(Y::Vector{Vector{RT}},
-                                     η::Matrix{RT},
-                                     ϵ::RT) where RT <: Real
-
-    good_mask = η .> ϵ
-    if all(good_mask)
-        return Y, η
-    end
-
-    return extract(Y, good_mask), η[:,good_mask]
-end
-
-
-"""
     kfilter_core(y, F, G, V, W, a, R)
 
 Internal function which actually performs the computation step.
@@ -671,6 +652,8 @@ function evolutional_covariances(Y::Vector{Vector{RT}},
                                  m₀::Union{Vector{RT}, Nothing} = nothing,
                                  C₀::Union{CovMat{RT}, Nothing} = nothing) where RT <: Real
 
+    #TODO: We need a proper time-by-time exclude_low_weights in this case.
+
     nreps = size(η, 2)
     T = size(Y, 1)
     F = repeat(F, nreps)
@@ -938,9 +921,7 @@ function estimate(Y::Vector{Vector{RT}},
                   ϵ::RT = 1e-8,
                   exclude_under::Union{RT, Nothing} = nothing) where RT <: Real
 
-    if !isnothing(exclude_under)
-        Y, η = exclude_low_weights(Y, η, exclude_under)
-    end
+    #TODO: We need a proper time-by-time exclude_low_weights in this case.
 
     nreps = size(η, 2)
     n, p = check_dimensions(F, G, Y=Y, nreps=nreps)
