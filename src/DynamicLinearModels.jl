@@ -741,8 +741,6 @@ function estimate(Y::Vector{Vector{RT}},
         θ, _ = ksmoother(G, a, R, m, C)
 
         # Conditional maximum for variance comes from the Gamma distribution
-        # which is InverseGamma(T - 1, sum((y - θ)^2)) for which the mode is
-        # given by the sum((y - F θ)^2) / T.
         ϕ = zero(ϕ)
         for t = 1:T
             for i = 1:nreps
