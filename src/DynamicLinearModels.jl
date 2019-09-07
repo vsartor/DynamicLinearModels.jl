@@ -268,7 +268,8 @@ containing only the observations with weights above `ϵ`.
         return Y, η
     end
 
-    return extract(Y, good_mask), η[good_mask]
+    n = Int(size(Y[1], 1) / size(η, 1))
+    return extract(Y, repeat(good_mask, inner = n)), η[good_mask]
 end
 
 
@@ -785,8 +786,8 @@ function estimate(Y::Vector{Vector{RT}},
     T = size(Y, 1)
 
     # Initialize values
-    ϕ = ones(1)
-    θ = [Vector{RT}(undef, p) for t = 1:T]
+    ϕ = ones(n)
+    θ = [zeros(p) for t = 1:T]
 
     it_count = zero(maxit)
 
@@ -860,8 +861,8 @@ function estimate(Y::Vector{Vector{RT}},
     index_map = [(n * (l - 1) + 1):(n * (l - 1) + n) for l = 1:nreps]
 
     # Initialize values
-    ϕ = ones(1)
-    θ = [Vector{RT}(undef, p) for t = 1:T]
+    ϕ = ones(n)
+    θ = [zeros(p) for t = 1:T]
 
     it_count = zero(maxit)
 
@@ -936,8 +937,8 @@ function estimate(Y::Vector{Vector{RT}},
     index_map = [(n * (l - 1) + 1):(n * (l - 1) + n) for l = 1:nreps]
 
     # Initialize values
-    ϕ = ones(1)
-    θ = [Vector{RT}(undef, p) for t = 1:T]
+    ϕ = ones(n)
+    θ = [zeros(p) for t = 1:T]
 
     it_count = zero(maxit)
 
