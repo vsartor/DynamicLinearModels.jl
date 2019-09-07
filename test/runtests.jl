@@ -6,4 +6,5 @@ using Test
 @testset "DynamicLinearModels" begin
     include("utility.jl")
     include("univariate.jl")
+    include("weighted.jl")
 end

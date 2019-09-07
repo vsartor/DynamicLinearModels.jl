@@ -82,6 +82,7 @@
         @test compute_prior(y_b, F_b, m_b, C_b) == (m_b, C_b)
     end
 
+
     @testset "Plot Recipe" begin
         F = reshape([1., 0.], 1, 2)
         G = [1. 1.; 0. 1.]
