@@ -7,4 +7,5 @@ using Test
     include("utility.jl")
     include("univariate.jl")
     include("weighted.jl")
+    include("dynamic.jl")
 end
