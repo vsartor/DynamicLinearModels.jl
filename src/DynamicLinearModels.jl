@@ -2,6 +2,8 @@ module DynamicLinearModels
 
 export DLMPlot
 export extract
+export to_matrix
+export from_matrix
 export simulate
 export compute_prior
 export check_dimensions
@@ -133,6 +135,27 @@ function extract(x::Vector{<: Union{Vector{RT}, CovMat{RT}}},
     else
         return [x[t][index,index] for t = 1:size(x,1)]
     end
+end
+
+
+"""
+    to_matrix(x)
+
+Converts a vector of vectors to a matrix.
+"""
+function to_matrix(x::Vector{Vector{RT}}) where RT <: Real
+
+    return hcat(x...)
+end
+
+"""
+    from_matrix(x)
+
+Converts a matrix to a vector of vector.
+"""
+function from_matrix(x::Matrix{RT}) where RT <: Real
+
+    return [x[:,j] for j = 1:size(x, 2)]
 end
 
 
