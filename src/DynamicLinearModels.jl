@@ -40,16 +40,16 @@ struct DLMPlot end
     plot(::DLMPlot, Y, f, Q[, fh, Qh; factor = 1.64, index = 1])
 
 Recipe for easily plotting the results obtained by the package routines, where
-`Y` is the vector of observations, `f` and `Q` are results from `fitted`, and
+`Y` is the observations matrix, `f` and `Q` are results from `fitted`, and
 `fh` and `Qh` are the results from `forecast`. Factor implies the credibility
 or the credibility intervals interval, e.g. a factor of 1.64 implies a
 credibility of 90%. Index indicates which observational index is to be plotted.
 """
 @recipe function plot(::DLMPlot,
-                      Y::Vector{Vector{RT}},
-                      f::Vector{Vector{RT}},
+                      Y::Matrix{RT},
+                      f::Matrix{RT},
                       Q::Vector{CovMat{RT}},
-                      fh::Union{Vector{Vector{RT}}, Nothing} = nothing,
+                      fh::Union{Matrix{RT}, Nothing} = nothing,
                       Qh::Union{Vector{CovMat{RT}}, Nothing} = nothing;
                       factor = 1.64,
                       index = 1,
@@ -72,14 +72,14 @@ credibility of 90%. Index indicates which observational index is to be plotted.
     for i = 1:nreps
         local_index = n * (i-1) + index
         push!(x, 1:T)
-        push!(y, extract(Y, local_index))
+        push!(y, Y[:,local_index])
         st = hcat(st, :scatter)
         lt = hcat(lt, :auto)
         co = hcat(co, :grey)
         lb = hcat(lb, i == 1 ? "Observations" : "")
     end
 
-    yhat = extract(f, index)
+    yhat = f[:,index]
     Qhat = extract(Q, index)
 
     push!(x, 1:T, 1:T, 1:T)
@@ -94,9 +94,9 @@ credibility of 90%. Index indicates which observational index is to be plotted.
 
     if !isnothing(fh)
         h = size(fh, 1)
-        fend = f[end][index]
+        fend = f[end,index]
         Qend = Q[end][index,index]
-        yfor = extract(fh, index)
+        yfor = fh[:,index]
         Qfor = extract(Qh, index)
 
         push!(x, T:T+h, T:T+h, T:T+h)
@@ -148,6 +148,7 @@ function to_matrix(x::Vector{Vector{RT}}) where RT <: Real
     return collect(hcat(x...)')
 end
 
+
 """
     from_matrix(x)
 
@@ -169,7 +170,7 @@ function check_dimensions(F::Matrix{RT},
                           G::Matrix{RT};
                           V::Union{CovMat{RT}, Nothing} = nothing,
                           W::Union{CovMat{RT}, Nothing} = nothing,
-                          Y::Union{Vector{Vector{RT}}, Nothing} = nothing,
+                          Y::Union{Matrix{RT}, Nothing} = nothing,
                           nreps::Integer = 1) where RT <: Real
 
     n = size(F, 1)
@@ -198,10 +199,8 @@ function check_dimensions(F::Matrix{RT},
     end
 
     if !isnothing(Y)
-        for t = 1:size(Y, 1)
-            if size(Y[t], 1) != n * nreps
-                throw(DimensionMismatch("Dimension of Y incompatible with F."))
-            end
+        if size(Y, 2) != n * nreps
+            throw(DimensionMismatch("Dimension of Y incompatible with F."))
         end
     end
 
@@ -232,17 +231,17 @@ function simulate(F::Matrix{RT},
 
     n, p = check_dimensions(F, G, V=V, W=W)
 
-    θ = Vector{Vector{RT}}(undef, T)
-    y = Vector{Vector{RT}}(undef, T)
+    θ = Matrix{RT}(undef, T, p)
+    y = Matrix{RT}(undef, T, n * nreps)
 
     ω = MultivariateNormal(zeros(p), W)
     ϵ = MultivariateNormal(zeros(n), V)
 
-    θ[1] = G * θ₀ + rand(ω)
-    y[1] = repeat(F * θ[1], nreps) + reshape(rand(ϵ, nreps), nreps * n)
+    θ[1,:] = G * θ₀ + rand(ω)
+    y[1,:] = repeat(F * θ[1,:], nreps) + reshape(rand(ϵ, nreps), nreps * n)
     for t = 2:T
-        θ[t] = G * θ[t-1] + rand(ω)
-        y[t] = repeat(F * θ[t], nreps) + reshape(rand(ϵ, nreps), nreps * n)
+        θ[t,:] = G * θ[t-1,:] + rand(ω)
+        y[t,:] = repeat(F * θ[t,:], nreps) + reshape(rand(ϵ, nreps), nreps * n)
     end
 
     return θ, y
@@ -256,7 +255,7 @@ Utility function for computing a smart prior that's not informative and at the
 same does not lead to numerical or visualization issues. Only takes effect if
 one of `m₀` is `C₀` is `nothing`, otherwise it just returns `m₀` and `C₀`.
 """
-function compute_prior(Y::Vector{Vector{RT}},
+function compute_prior(Y::Matrix{RT},
                        F::Matrix{RT},
                        m₀::Union{Vector{RT}, Nothing},
                        C₀::Union{CovMat{RT}, Nothing}) where RT <: Real
@@ -268,7 +267,7 @@ function compute_prior(Y::Vector{Vector{RT}},
      end
 
      if isnothing(C₀)
-         magic_sdev = maximum(abs.(Y[1] - F * m₀))
+         magic_sdev = maximum(abs.(Y[1,:] - F * m₀))
          C₀ = Symmetric(diagm(repeat([magic_sdev^2], p)))
      end
 
@@ -282,17 +281,19 @@ end
 Internal function which returns a version of the original `Y` and `η` variables,
 containing only the observations with weights above `ϵ`.
 """
-@inline function exclude_low_weights(Y::Vector{Vector{RT}},
+@inline function exclude_low_weights(Y::Matrix{RT},
                                      η::Vector{RT},
                                      ϵ::RT) where RT <: Real
+
+    # TODO: Make sure I'm returning Views
 
     good_mask = η .> ϵ
     if all(good_mask)
         return Y, η
     end
 
-    n = Int(size(Y[1], 1) / size(η, 1))
-    return extract(Y, repeat(good_mask, inner = n)), η[good_mask]
+    n = Int(size(Y[1,:], 1) / size(η, 1))
+    return Y[:,repeat(good_mask, inner=n)], η[good_mask]
 end
 
 
@@ -351,14 +352,14 @@ end
 
 Filtering routine for the Dynamic Linear Model (`F`, `G`) where the
 observational and evolutional covariance matrices `V` and `W` are known and
-constant. `Y` is a vector of observations, containing all observations Y[1],
-..., Y[T].  Prior parameters `m₀` and `C₀` may be omitted, in which case
-`compute_prior` kicks in to assign a prior.
+constant. `Y` is the matrix of observations with `T` rows and `n` columns.
+Prior parameters `m₀` and `C₀` may be omitted, in which case `compute_prior`
+kicks in to assign a prior.
 
 Returns one-step ahead prior means and covariances `a` and `R`, and online
 means and covariances `m` and `C`.
 """
-function kfilter(Y::Vector{Vector{RT}},
+function kfilter(Y::Matrix{RT},
                  F::Matrix{RT},
                  G::Matrix{RT},
                  V::CovMat{RT},
@@ -371,14 +372,14 @@ function kfilter(Y::Vector{Vector{RT}},
 
     m₀, C₀ = compute_prior(Y, F, m₀, C₀)
 
-    a = Vector{Vector{RT}}(undef, T)
-    m = Vector{Vector{RT}}(undef, T)
+    a = Matrix{RT}(undef, T, p)
+    m = Matrix{RT}(undef, T, p)
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
 
-    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V, W, m₀, C₀)
+    a[1,:], R[1], m[1,:], C[1] = kfilter_core(Y[1,:], F, G, V, W, m₀, C₀)
     for t = 2:T
-        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V, W, m[t-1], C[t-1])
+        a[t,:], R[t], m[t,:], C[t] = kfilter_core(Y[t,:], F, G, V, W, m[t-1,:], C[t-1])
     end
 
     return a, R, m, C
@@ -392,14 +393,14 @@ Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
 the observational covariance matrix `V` is known and constant and evolutional
 covariance matrices `W[1], ..., W[T]` are indirectly modelled through a discount
 factor `δ`. See West & Harrison (1996) for further information of the discount
-factor apporach. `Y` is a vector of observations, containing all observations
-Y[1], ..., Y[T].  Prior parameters `m₀` and `C₀` may be omitted, in which case
+factor apporach. `Y` is the matrix of observations with `T` rows and `n`
+columns.  Prior parameters `m₀` and `C₀` may be omitted, in which case
 `compute_prior` kicks in to assign a prior.
 
 Returns one-step ahead prior means and covariances `a` and `R`, and online
 means and covariances `m` and `C`.
 """
-function kfilter(Y::Vector{Vector{RT}},
+function kfilter(Y::Matrix{RT},
                  F::Matrix{RT},
                  G::Matrix{RT},
                  V::CovMat{RT},
@@ -412,14 +413,14 @@ function kfilter(Y::Vector{Vector{RT}},
 
     m₀, C₀ = compute_prior(Y, F, m₀, C₀)
 
-    a = Vector{Vector{RT}}(undef, T)
-    m = Vector{Vector{RT}}(undef, T)
+    a = Matrix{RT}(undef, T, p)
+    m = Matrix{RT}(undef, T, p)
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
 
-    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V, δ, m₀, C₀)
+    a[1,:], R[1], m[1,:], C[1] = kfilter_core(Y[1,:], F, G, V, δ, m₀, C₀)
     for t = 2:T
-        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V, δ, m[t-1], C[t-1])
+        a[t,:], R[t], m[t,:], C[t] = kfilter_core(Y[t,:], F, G, V, δ, m[t-1,:], C[t-1])
     end
 
     return a, R, m, C
@@ -433,14 +434,14 @@ Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
 the observational covariance matrices `V[1], …, V[T]` are known and evolutional
 covariance matrices `W[1], ..., W[T]` are indirectly modelled through a discount
 factor `δ`. See West & Harrison (1996) for further information of the discount
-factor apporach. `Y` is a vector of observations, containing all observations
-Y[1], ..., Y[T].  Prior parameters `m₀` and `C₀` may be omitted, in which case
+factor apporach. `Y` is the matrix of observations with `T` rows and `n`
+columns. Prior parameters `m₀` and `C₀` may be omitted, in which case
 `compute_prior` kicks in to assign a prior.
 
 Returns one-step ahead prior means and covariances `a` and `R`, and online
 means and covariances `m` and `C`.
 """
-function kfilter(Y::Vector{Vector{RT}},
+function kfilter(Y::Matrix{RT},
                  F::Matrix{RT},
                  G::Matrix{RT},
                  V::Vector{CovMat{RT}},
@@ -453,14 +454,14 @@ function kfilter(Y::Vector{Vector{RT}},
 
     m₀, C₀ = compute_prior(Y, F, m₀, C₀)
 
-    a = Vector{Vector{RT}}(undef, T)
-    m = Vector{Vector{RT}}(undef, T)
+    a = Matrix{RT}(undef, T, p)
+    m = Matrix{RT}(undef, T, p)
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
 
-    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V[1], δ, m₀, C₀)
+    a[1,:], R[1], m[1,:], C[1] = kfilter_core(Y[1,:], F, G, V[1], δ, m₀, C₀)
     for t = 2:T
-        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V[t], δ, m[t-1], C[t-1])
+        a[t,:], R[t], m[t,:], C[t] = kfilter_core(Y[t,:], F, G, V[t], δ, m[t-1,:], C[t-1])
     end
 
     return a, R, m, C
@@ -473,15 +474,15 @@ end
 Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
 the observational covariance matrix `V` is known and constants and evolutional
 covariance matrices `W[1], ..., W[T]` are indirectly modelled through a discount
-factor `δ` and observations have replications. `Y` is a vector of observations,
-where at each time point there are `nreps` replicates, each with a weight
-`η[i]`.  Prior parameters `m₀` and `C₀` may be omitted, in which case
-`compute_prior` kicks in to assign a prior.
+factor `δ` and observations have replications. `Y` is the matrix of observations
+with `T` rows and `n * nreps` columns, each replicate with a weight`η[i]`.
+Prior parameters `m₀` and `C₀` may be omitted, in which case `compute_prior`
+kicks in to assign a prior.
 
 Returns one-step ahead prior means and covariances `a` and `R`, and online
 means and covariances `m` and `C`.
 """
-function kfilter(Y::Vector{Vector{RT}},
+function kfilter(Y::Matrix{RT},
                  F::Matrix{RT},
                  G::Matrix{RT},
                  V::CovMat{RT},
@@ -507,14 +508,14 @@ function kfilter(Y::Vector{Vector{RT}},
 
     m₀, C₀ = compute_prior(Y, F, m₀, C₀)
 
-    a = Vector{Vector{RT}}(undef, T)
-    m = Vector{Vector{RT}}(undef, T)
+    a = Matrix{RT}(undef, T, p)
+    m = Matrix{RT}(undef, T, p)
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
 
-    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, V, δ, m₀, C₀)
+    a[1,:], R[1], m[1,:], C[1] = kfilter_core(Y[1,:], F, G, V, δ, m₀, C₀)
     for t = 2:T
-        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, V, δ, m[t-1], C[t-1])
+        a[t,:], R[t], m[t,:], C[t] = kfilter_core(Y[t,:], F, G, V, δ, m[t-1,:], C[t-1])
     end
 
     return a, R, m, C
@@ -527,15 +528,15 @@ end
 Filtering routine for a discount factor Dynamic Linear Model (`F`, `G`) where
 the observational covariance matrix `V` is known and constants and evolutional
 covariance matrices `W[1], ..., W[T]` are indirectly modelled through a discount
-factor `δ` and observations have replications. `Y` is a vector of observations,
-where at each time point there are `nreps` replicates, each with dynamic weights
+factor `δ` and observations have replications. `Y` is the matrix of observations
+with `T` rows and `n * nreps` columns, each replicate with dynamic weights
 `η[t,i]`.  Prior parameters `m₀` and `C₀` may be omitted, in which case
 `compute_prior` kicks in to assign a prior.
 
 Returns one-step ahead prior means and covariances `a` and `R`, and online
 means and covariances `m` and `C`.
 """
-function kfilter(Y::Vector{Vector{RT}},
+function kfilter(Y::Matrix{RT},
                  F::Matrix{RT},
                  G::Matrix{RT},
                  V::CovMat{RT},
@@ -562,16 +563,16 @@ function kfilter(Y::Vector{Vector{RT}},
 
     m₀, C₀ = compute_prior(Y, F, m₀, C₀)
 
-    a = Vector{Vector{RT}}(undef, T)
-    m = Vector{Vector{RT}}(undef, T)
+    a = Matrix{RT}(undef, T, p)
+    m = Matrix{RT}(undef, T, p)
     R = Vector{CovMat{RT}}(undef, T)
     C = Vector{CovMat{RT}}(undef, T)
 
     VV = Symmetric(kron(diagm(1 ./ η[1,:]), V))
-    a[1], R[1], m[1], C[1] = kfilter_core(Y[1], F, G, VV, δ, m₀, C₀)
+    a[1,:], R[1], m[1,:], C[1] = kfilter_core(Y[1,:], F, G, VV, δ, m₀, C₀)
     for t = 2:T
         VV = Symmetric(kron(diagm(1 ./ η[t,:]), V))
-        a[t], R[t], m[t], C[t] = kfilter_core(Y[t], F, G, VV, δ, m[t-1], C[t-1])
+        a[t,:], R[t], m[t,:], C[t] = kfilter_core(Y[t,:], F, G, VV, δ, m[t-1,:], C[t-1])
     end
 
     return a, R, m, C
@@ -588,22 +589,23 @@ the filtered online means and covariances.
 Returns the posterior means and covariances `s` and `S`.
 """
 function ksmoother(G::Matrix{RT},
-                   a::Vector{Vector{RT}},
+                   a::Matrix{RT},
                    R::Vector{CovMat{RT}},
-                   m::Vector{Vector{RT}},
+                   m::Matrix{RT},
                    C::Vector{CovMat{RT}}) where RT <: Real
 
+    p = size(m, 2)
     T = size(R, 1)
 
-    s = similar(m, T)
+    s = similar(m, T, p)
     S = similar(C, T)
 
-    s[T] = m[T]
+    s[T,:] = m[T,:]
     S[T] = C[T]
 
     for t = T-1:-1:1
         B::Matrix{RT} = C[t] * G' * inv(R[t+1])
-        s[t] = m[t] + B * (s[t+1] - a[t+1])
+        s[t,:] = m[t,:] + B * (s[t+1,:] - a[t+1,:])
         S[t] = C[t] - Symmetric(B * (R[t+1] - S[t+1]) * B')
     end
 
@@ -617,7 +619,7 @@ end
 Compute the implied values of the evolutional covariances W[1], ..., W[T] when
 considering a discount factor approach.
 """
-function evolutional_covariances(Y::Vector{Vector{RT}},
+function evolutional_covariances(Y::Matrix{RT},
                                  F::Matrix{RT},
                                  G::Matrix{RT},
                                  V::CovMat{RT},
@@ -631,7 +633,7 @@ function evolutional_covariances(Y::Vector{Vector{RT}},
     W = Vector{CovMat{RT}}(undef, T)
 
     for t = 1:T
-        _, _, m, C = kfilter_core(Y[t], F, G, V, δ, m, C)
+        _, _, m, C = kfilter_core(Y[t,:], F, G, V, δ, m, C)
         W[t] = Symmetric(G * C * G') * ((1. - δ) / δ)
     end
 
@@ -645,7 +647,7 @@ end
 Compute the implied values of the evolutional covariances W[1], ..., W[T] when
 considering a discount factor approach, and weighted replicates.
 """
-function evolutional_covariances(Y::Vector{Vector{RT}},
+function evolutional_covariances(Y::Matrix{RT},
                                  F::Matrix{RT},
                                  G::Matrix{RT},
                                  V::CovMat{RT},
@@ -667,7 +669,7 @@ end
 Compute the implied values of the evolutional covariances W[1], ..., W[T] when
 considering a discount factor approach, and dynamically weighted replicates.
 """
-function evolutional_covariances(Y::Vector{Vector{RT}},
+function evolutional_covariances(Y::Matrix{RT},
                                  F::Matrix{RT},
                                  G::Matrix{RT},
                                  V::CovMat{RT},
@@ -687,7 +689,7 @@ function evolutional_covariances(Y::Vector{Vector{RT}},
 
     for t = 1:T
         VV = Symmetric(kron(diagm(1 ./ η[t,:]), V))
-        _, _, m, C = kfilter_core(Y[t], F, G, VV, δ, m, C)
+        _, _, m, C = kfilter_core(Y[t,:], F, G, VV, δ, m, C)
         W[t] = Symmetric(G * C * G') * ((1. - δ) / δ)
     end
 
@@ -707,16 +709,17 @@ Returns observational means and covariances `f` and `Q`.
 """
 function fitted(F::Matrix{RT},
                 V::CovMat{RT},
-                m::Vector{Vector{RT}},
+                m::Matrix{RT},
                 C::Vector{CovMat{RT}}) where RT <: Real
 
+    n = size(F, 1)
     T = size(m, 1)
 
-    f = Vector{Vector{RT}}(undef, T)
+    f = Matrix{RT}(undef, T, n)
     Q = Vector{CovMat{RT}}(undef, T)
 
     for t = 1:T
-        f[t] = F * m[t]
+        f[t,:] = F * m[t,:]
         Q[t] = Symmetric(F * C[t] * F') + V
     end
 
@@ -742,14 +745,16 @@ function forecast(F::Matrix{RT},
                   Σ::CovMat{RT},
                   h::Integer) where RT <: Real
 
-    f = Vector{Vector{RT}}(undef, h)
+    n = size(F, 1)
+
+    f = Matrix{RT}(undef, h, n)
     Q = Vector{CovMat{RT}}(undef, h)
 
     a, R = μ, Σ
     for t in 1:h
         a = G * a
         R = Symmetric(G * R * G') + W
-        f[t] = F * a
+        f[t,:] = F * a
         Q[t] = Symmetric(F * R * F') + V
     end
 
@@ -796,7 +801,7 @@ covariance matrix `V`. Also returns the number of iterations until convergence.
 If negative, it means the algorithm stopped from reaching the maximum number
 of iterations.
 """
-function estimate(Y::Vector{Vector{RT}},
+function estimate(Y::Matrix{RT},
                   F::Matrix{RT},
                   G::Matrix{RT},
                   δ::RT,
@@ -810,7 +815,7 @@ function estimate(Y::Vector{Vector{RT}},
 
     # Initialize values
     ϕ = ones(n)
-    θ = [zeros(p) for t = 1:T]
+    θ = zeros(T, p)
 
     it_count = zero(maxit)
 
@@ -828,12 +833,12 @@ function estimate(Y::Vector{Vector{RT}},
         # given by the sum((y - F θ)^2) / T.
         ϕ = zero(ϕ)
         for t = 1:T
-            ϕ += (Y[t] - F * θ[t]) .^ 2 / T
+            ϕ += (Y[t,:] - F * θ[t,:]) .^ 2 / T
         end
 
         # Check for early convergence condition
         it_count = it
-        if sum([sum((θ[t] - prev_θ[t]) .^ 2) for t = 1:T]) < p * T * ϵ^2
+        if sum((θ - prev_θ) .^ 2) < p * T * ϵ^2
             break
         end
     end
@@ -858,7 +863,7 @@ covariance matrix `V`. Also returns the number of iterations until convergence.
 If negative, it means the algorithm stopped from reaching the maximum number
 of iterations.
 """
-function estimate(Y::Vector{Vector{RT}},
+function estimate(Y::Matrix{RT},
                   F::Matrix{RT},
                   G::Matrix{RT},
                   η::Vector{RT},
@@ -885,7 +890,7 @@ function estimate(Y::Vector{Vector{RT}},
 
     # Initialize values
     ϕ = ones(n)
-    θ = [zeros(p) for t = 1:T]
+    θ = zeros(T, p)
 
     it_count = zero(maxit)
 
@@ -903,13 +908,13 @@ function estimate(Y::Vector{Vector{RT}},
         ϕ = zero(ϕ)
         for t = 1:T
             for i = 1:nreps
-                ϕ += η[i] * (Y[t][index_map[i]] - F * θ[t]) .^ 2 / T
+                ϕ += η[i] * (Y[t,index_map[i]] - F * θ[t,:]) .^ 2 / T
             end
         end
 
         # Check for early convergence condition
         it_count = it
-        if sum([sum((θ[t] - prev_θ[t]) .^ 2) for t = 1:T]) < p * T * ϵ^2
+        if sum((θ - prev_θ) .^ 2) < p * T * ϵ^2
             break
         end
     end
@@ -934,7 +939,7 @@ covariance matrix `V`. Also returns the number of iterations until convergence.
 If negative, it means the algorithm stopped from reaching the maximum number
 of iterations.
 """
-function estimate(Y::Vector{Vector{RT}},
+function estimate(Y::Matrix{RT},
                   F::Matrix{RT},
                   G::Matrix{RT},
                   η::Matrix{RT},
@@ -961,7 +966,7 @@ function estimate(Y::Vector{Vector{RT}},
 
     # Initialize values
     ϕ = ones(n)
-    θ = [zeros(p) for t = 1:T]
+    θ = zeros(T, p)
 
     it_count = zero(maxit)
 
@@ -979,13 +984,13 @@ function estimate(Y::Vector{Vector{RT}},
         ϕ = zero(ϕ)
         for t = 1:T
             for i = 1:nreps
-                ϕ += η[i] * (Y[t][index_map[i]] - F * θ[t]) .^ 2 / T
+                ϕ += η[i] * (Y[t,index_map[i]] - F * θ[t,:]) .^ 2 / T
             end
         end
 
         # Check for early convergence condition
         it_count = it
-        if sum([sum((θ[t] - prev_θ[t]) .^ 2) for t = 1:T]) < p * T * ϵ^2
+        if sum((θ - prev_θ) .^ 2) < p * T * ϵ^2
             break
         end
     end
