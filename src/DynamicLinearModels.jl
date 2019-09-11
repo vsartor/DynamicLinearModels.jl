@@ -145,7 +145,7 @@ Converts a vector of vectors to a matrix.
 """
 function to_matrix(x::Vector{Vector{RT}}) where RT <: Real
 
-    return hcat(x...)
+    return collect(hcat(x...)')
 end
 
 """
@@ -155,7 +155,7 @@ Converts a matrix to a vector of vector.
 """
 function from_matrix(x::Matrix{RT}) where RT <: Real
 
-    return [x[:,j] for j = 1:size(x, 2)]
+    return [x[t,:] for t = 1:size(x, 1)]
 end
 
 
